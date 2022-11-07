@@ -71,7 +71,7 @@ def get_system(boundaries, data, pdegree, parameters):
     #  2
     # 3 4
     #  1
-    dirichlet_tags = (1, 2, 3, 4)  
+    dirichlet_tags = (1, 2)  
 
     all_tags = set((1, 2, 3, 4))
     neumann_tags = tuple(all_tags - set(dirichlet_tags))  # Neumann is full stress
@@ -219,4 +219,5 @@ if __name__ == '__main__':
             out.write('%s\n' % (' '.join(tuple(map(str, error_row)))))
         
     if args.save:
-        df.File(get_path('uh', 'pvd')) << uh
+        File(get_path('uh0', 'pvd')) << wh[0]
+        File(get_path('uh1', 'pvd')) << wh[1]        
