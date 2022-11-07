@@ -116,7 +116,9 @@ if __name__ == '__main__':
     parser.add_argument('-gamma', type=float, default=5, help='Coupling strength')            
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
-
+    # Solver
+    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre'))
+    
     parser.add_argument('-save', type=int, default=0, help='Save graphics')    
 
     args, _ = parser.parse_known_args()
@@ -125,7 +127,7 @@ if __name__ == '__main__':
     not os.path.exists(result_dir) and os.makedirs(result_dir)
 
     def get_path(what, ext):
-        template_path = f'kappa1{args.kappa1}_kappa2{args.kappa2}_gamma{args.gamma}_pdegree{args.pdegree}.{ext}'
+        template_path = f'precond{args.precond}_kappa1{args.kappa1}_kappa2{args.kappa2}_gamma{args.gamma}_pdegree{args.pdegree}.{ext}'
         return os.path.join(result_dir, template_path)
 
     Params = namedtuple('Params', ('kappa1', 'kappa2', 'gamma'))
@@ -143,6 +145,9 @@ if __name__ == '__main__':
     # What we want to collect for error
     headers_error = ['ndofs', 'h', '|eu1|_1', 'r|eu1|_1', '|eu2|_1', 'r|eu2|_1']
     table_error = []
+
+    get_precond = {'diag': utils.get_block_diag_precond,
+                   'hypre': utils.get_hypre_monolithic_precond}[args.precond]
 
     mesh_generator = utils.UnitSquareMeshes()
     next(mesh_generator)
@@ -162,8 +167,8 @@ if __name__ == '__main__':
 
         then = time.time()
         # For simplicity only use block diagonal preconditioner
-        BB = utils.get_block_diag_precond(AA, bcs)
-
+        BB = get_precond(AA, W, bcs)
+        
         AAinv = ConjGrad(AA, precond=BB, tolerance=1E-10, show=4, maxiter=500, callback=cbk)
         xx = AAinv * bb
         ksp_dt = time.time() - then
