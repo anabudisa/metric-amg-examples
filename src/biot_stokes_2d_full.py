@@ -1,11 +1,9 @@
+# Here the coupling between the domains is in terms of the full vector
+# and not just the tangential components
 from dolfin import *
 from xii import *
 import sympy as sp
 import ulfy
-
-
-def tangent(f, n):
-    return f - dot(f, n)*n
 
 
 def setup_mms(params, symgrad):
@@ -55,15 +53,10 @@ def setup_mms(params, symgrad):
         'u2': as_expression(u2),
         'flux2': as_expression(sigma2),
         'f2': as_expression(f2),
-        # Here we assume a flat interface between (1) top and (2) bottom
-        # -sigma1.n1 - sigma.n2 = g_n
-        # -sigma2.n2 = g_n + sigma1.n1
-        #        x n2 = g_n x n2 - sigma1.n1 x n1
-        #               g_n x n2 + alpha(u1-u2).n1 + g_r
-        #               g_n x n2 + alpha(u2-u1).n2 + g_r
+        #
         'g_n': as_expression(-dot(sigma1, n1) - dot(sigma2, n2)),
         # -sigma.n.n = alpha(u1-u2) + g_r
-        'g_r': as_expression(-tangent(dot(sigma1, n1), n1) - gamma*tangent(u1 - u2, n1))
+        'g_r': as_expression(-dot(sigma1, n1) - gamma*(u1 - u2))
     }
     return data
 
@@ -107,12 +100,10 @@ def get_system(boundaries1, boundaries2, interface, symgrad, data, pdegree, para
         transf = lambda x: x
     
     a = block_form(W, 2)
-    a[0][0] = (inner(kappa1*transf(grad(u1)), transf(grad(v1)))*dx +
-               gamma*inner(tangent(Tu1, n_), tangent(Tv1, n_))*dx_)
-    a[0][1] = -gamma*inner(tangent(Tu2, n_), tangent(Tv1, n_))*dx_
-    a[1][0] = -gamma*inner(tangent(Tu1, n_), tangent(Tv2, n_))*dx_
-    a[1][1] = (inner(kappa2*transf(grad(u2)), transf(grad(v2)))*dx + 
-               gamma*inner(tangent(Tu2, n_), tangent(Tv2, n_))*dx_)
+    a[0][0] = (inner(kappa1*transf(grad(u1)), transf(grad(v1)))*dx + gamma*inner(Tu1, Tv1)*dx_)
+    a[0][1] = -gamma*inner(Tu2, Tv1)*dx_
+    a[1][0] = -gamma*inner(Tu1, Tv2)*dx_
+    a[1][1] = (inner(kappa2*transf(grad(u2)), transf(grad(v2)))*dx + gamma*inner(Tu2, Tv2)*dx_)
                
     f1, f2 = data['f1'], data['f2']
     sigma1, sigma2 = data['flux1'], data['flux2']
@@ -135,12 +126,10 @@ def get_system(boundaries1, boundaries2, interface, symgrad, data, pdegree, para
 
     g_r, g_n = data['g_r'], data['g_n']    
     # BJS contribution to first ...
-    L[0] += sum(inner(dot(dot(sigma1, n1), n1), dot(v1, n1))*ds1(tag) for tag in (1, ))
-    L[0] += -sum(inner(g_r, tangent(v1, n1))*ds1(tag) for tag in (1, ))    
+    L[0] += -sum(inner(g_r, v1)*ds1(tag) for tag in (1, ))    
     # ... and second
-    L[1] += sum(inner(dot(dot(sigma2, n2), n2), dot(v2, n2))*ds2(tag) for tag in (1, ))
-    L[1] += -sum(inner(tangent(g_n, n2), tangent(v2, n2))*ds2(tag) for tag in (1, ))        
-    L[1] += sum(inner(g_r, tangent(v2, n2))*ds2(tag) for tag in (1, ))
+    L[1] += -sum(inner(g_n, v2)*ds2(tag) for tag in (1, ))        
+    L[1] += sum(inner(g_r, v2)*ds2(tag) for tag in (1, ))
     
     bcs = [[DirichletBC(V1, u1_data, boundaries1, tag) for tag in dirichlet_tags1],
            [DirichletBC(V2, u2_data, boundaries2, tag) for tag in dirichlet_tags2]]
@@ -176,7 +165,7 @@ if __name__ == '__main__':
 
     args, _ = parser.parse_known_args()
     
-    result_dir = f'./results/biot_stokes_2d/'
+    result_dir = f'./results/biot_stokes_2d_full/'
     not os.path.exists(result_dir) and os.makedirs(result_dir)
 
     def get_path(what, ext):
