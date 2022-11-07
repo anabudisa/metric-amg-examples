@@ -1,11 +1,9 @@
+# Here the coupling between the domains is in terms of the full vector
+# and not just the tangential components
 from dolfin import *
 from xii import *
 import sympy as sp
 import ulfy
-
-
-def tangent(f, n):
-    return f - dot(f, n)*n
 
 
 def setup_mms(params, symgrad):
@@ -16,13 +14,13 @@ def setup_mms(params, symgrad):
 
     with coupling conditions and mixed boundary conditions
     '''
-    mesh = UnitSquareMesh(1, 1)  # Dummy
+    mesh = UnitCubeMesh(1, 1, 1)  # Dummy
 
     kappa1, kappa2, gamma = Constant(1), Constant(2), Constant(3)
 
-    x, y = SpatialCoordinate(mesh)
-    u1 = as_vector((cos(pi*(x + y)), sin(pi*(x - y))))
-    u2 = as_vector((cos(pi*(x - y)), sin(pi*(x + y))))
+    x, y, z = SpatialCoordinate(mesh)
+    u1 = as_vector((cos(pi*(x + y)), sin(pi*(x - y)), sin(pi*z)))
+    u2 = as_vector((cos(pi*(x - y)), sin(pi*(x + y)), sin(2*pi*z)))
 
     if symgrad:
         transf = sym
@@ -45,7 +43,7 @@ def setup_mms(params, symgrad):
                                               kappa2=params.kappa2,
                                               gamma=params.gamma)
 
-    n1, n2 = Constant((0, -1)), Constant((0, 1))
+    n1, n2 = Constant((0, 0, -1)), Constant((0, 0, 1))
             
     data = {
         'u1': as_expression(u1),
@@ -55,100 +53,12 @@ def setup_mms(params, symgrad):
         'u2': as_expression(u2),
         'flux2': as_expression(sigma2),
         'f2': as_expression(f2),
-        # Here we assume a flat interface between (1) top and (2) bottom
-        # -sigma1.n1 - sigma.n2 = g_n
-        # -sigma2.n2 = g_n + sigma1.n1
-        #        x n2 = g_n x n2 - sigma1.n1 x n1
-        #               g_n x n2 + alpha(u1-u2).n1 + g_r
-        #               g_n x n2 + alpha(u2-u1).n2 + g_r
+        #
         'g_n': as_expression(-dot(sigma1, n1) - dot(sigma2, n2)),
         # -sigma.n.n = alpha(u1-u2) + g_r
-        'g_r': as_expression(-tangent(dot(sigma1, n1), n1) - gamma*tangent(u1 - u2, n1))
+        'g_r': as_expression(-dot(sigma1, n1) - gamma*(u1 - u2))
     }
     return data
-
-
-
-def get_system(boundaries1, boundaries2, interface, symgrad, data, pdegree, parameters):
-    """Setup the linear system A*x = b in W where W has bcs"""
-    kappa1, kappa2, gamma = (Constant(parameters.kappa1),
-                             Constant(parameters.kappa2),
-                             Constant(parameters.gamma))
-
-    mesh1 = boundaries1.mesh()
-    mesh2 = boundaries2.mesh()
-    
-    V1 = VectorFunctionSpace(mesh1, 'Lagrange', pdegree)
-    V2 = VectorFunctionSpace(mesh2, 'Lagrange', pdegree)
-    
-    W = [V1, V2]
-
-    u1, u2 = map(TrialFunction, W)
-    v1, v2 = map(TestFunction, W)
-
-    ds1 = Measure('ds', domain=mesh1, subdomain_data=boundaries1)
-    n1 = FacetNormal(mesh1)
-
-    ds2 = Measure('ds', domain=mesh2, subdomain_data=boundaries2)
-    n2 = FacetNormal(mesh2)
-
-    # ---
-
-    Tu1, Tu2 = Trace(u1, interface), Trace(u2, interface)
-    Tv1, Tv2 = Trace(v1, interface), Trace(v2, interface)
-    n1_ = OuterNormal(interface, mesh1)
-    n2_ = -n1_
-    n_ = n1_
-    dx_ = Measure('dx', domain=interface)
-
-    if symgrad:
-        transf = sym
-    else:
-        transf = lambda x: x
-    
-    a = block_form(W, 2)
-    a[0][0] = (inner(kappa1*transf(grad(u1)), transf(grad(v1)))*dx +
-               gamma*inner(tangent(Tu1, n_), tangent(Tv1, n_))*dx_)
-    a[0][1] = -gamma*inner(tangent(Tu2, n_), tangent(Tv1, n_))*dx_
-    a[1][0] = -gamma*inner(tangent(Tu1, n_), tangent(Tv2, n_))*dx_
-    a[1][1] = (inner(kappa2*transf(grad(u2)), transf(grad(v2)))*dx + 
-               gamma*inner(tangent(Tu2, n_), tangent(Tv2, n_))*dx_)
-               
-    f1, f2 = data['f1'], data['f2']
-    sigma1, sigma2 = data['flux1'], data['flux2']
-    u1_data, u2_data = data['u1'], data['u2']
-
-    L = block_form(W, 1)
-    L[0] = inner(f1, v1)*dx
-    L[1] = inner(f2, v2)*dx
-
-    dirichlet_tags1 = (3, )
-    neumann_tags1 = tuple(set((2, 3, 4)) - set(dirichlet_tags1))  
-    # --
-    dirichlet_tags2 = (6, )
-    neumann_tags2 = tuple(set((5, 6, 7)) - set(dirichlet_tags2))  
-    
-    # Neumann
-    # Add full stress
-    L[0] += sum(inner(dot(sigma1, n1), v1)*ds1(tag) for tag in neumann_tags1)
-    L[1] += sum(inner(dot(sigma2, n2), v2)*ds2(tag) for tag in neumann_tags2)
-
-    g_r, g_n = data['g_r'], data['g_n']    
-    # BJS contribution to first ...
-    L[0] += sum(inner(dot(dot(sigma1, n1), n1), dot(v1, n1))*ds1(tag) for tag in (1, ))
-    L[0] += -sum(inner(g_r, tangent(v1, n1))*ds1(tag) for tag in (1, ))    
-    # ... and second
-    L[1] += sum(inner(dot(dot(sigma2, n2), n2), dot(v2, n2))*ds2(tag) for tag in (1, ))
-    L[1] += -sum(inner(tangent(g_n, n2), tangent(v2, n2))*ds2(tag) for tag in (1, ))        
-    L[1] += sum(inner(g_r, tangent(v2, n2))*ds2(tag) for tag in (1, ))
-    
-    bcs = [[DirichletBC(V1, u1_data, boundaries1, tag) for tag in dirichlet_tags1],
-           [DirichletBC(V2, u2_data, boundaries2, tag) for tag in dirichlet_tags2]]
-
-    A, b = map(ii_assemble, (a, L))
-    A, b = apply_bc(A, b, bcs)
-
-    return A, b, W, bcs
 
 # --------------------------------------------------------------------
 
@@ -158,6 +68,8 @@ if __name__ == '__main__':
     import argparse, time, tabulate
     import numpy as np
     import os, utils
+
+    from biot_stokes_2d_full import get_system
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-nrefs', type=int, default=1, help='Number of mesh refinements')
@@ -176,7 +88,7 @@ if __name__ == '__main__':
 
     args, _ = parser.parse_known_args()
     
-    result_dir = f'./results/biot_stokes_2d/'
+    result_dir = f'./results/biot_stokes_3d_full/'
     not os.path.exists(result_dir) and os.makedirs(result_dir)
 
     def get_path(what, ext):
@@ -203,13 +115,13 @@ if __name__ == '__main__':
     get_precond = {'diag': utils.get_block_diag_precond,
                    'hypre': utils.get_hypre_monolithic_precond}[args.precond]
 
-    mesh_generator = utils.SplitUnitSquareMeshes()
+    mesh_generator = utils.SplitUnitCubeMeshes()
     next(mesh_generator)
 
     u1_true, u2_true = test_case['u1'], test_case['u2']
     # Let's do this thing
     errors0, h0, diameters = None, None, None
-    for ncells in (2**i for i in range(4, 4+args.nrefs)):
+    for ncells in (2**i for i in range(2, 2+args.nrefs)):
         meshes = mesh_generator.send(ncells)
         next(mesh_generator)
 

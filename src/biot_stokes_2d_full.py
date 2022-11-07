@@ -92,7 +92,7 @@ def get_system(boundaries1, boundaries2, interface, symgrad, data, pdegree, para
     n1_ = OuterNormal(interface, mesh1)
     n2_ = -n1_
     n_ = n1_
-    dx_ = Measure('dx', domain=interface_mesh)
+    dx_ = Measure('dx', domain=interface)
 
     if symgrad:
         transf = sym

@@ -91,12 +91,31 @@ def UnitSquareMeshes():
         yield (mesh, {2: cell_f, 1: facet_f})
 
 
+def UnitCubeMeshes():
+    '''Stream of meshes'''
+    while True:
+        ncells = yield
+
+        mesh = df.UnitCubeMesh(ncells, ncells, ncells)
+
+        cell_f = df.MeshFunction('size_t', mesh, 3, 1)
+
+        facet_f = df.MeshFunction('size_t', mesh, 2, 0)
+        df.CompiledSubDomain('near(x[2], 0)').mark(facet_f, 1)
+        df.CompiledSubDomain('near(x[2], 1)').mark(facet_f, 2)
+        df.CompiledSubDomain('near(x[1], 0) || near(x[1], 1)').mark(facet_f, 3)
+        df.CompiledSubDomain('near(x[0], 0) || near(x[0], 1)').mark(facet_f, 4)
+
+        yield (mesh, {3: cell_f, 2: facet_f})
+        
+# --
+
 def SplitUnitSquareMeshes():
     '''Stream of meshes'''
     while True:
         ncells = yield
 
-        assert ncells > 4
+        assert ncells >= 4
         mesh = df.UnitSquareMesh(ncells, ncells)
 
         cell_f = df.MeshFunction('size_t', mesh, 2, 1)
@@ -116,6 +135,42 @@ def SplitUnitSquareMeshes():
         df.CompiledSubDomain('near(x[0], 0) && x[1] < 0.5 + DOLFIN_EPS').mark(facet_f, 5)
         df.CompiledSubDomain('near(x[1], 0)').mark(facet_f, 6)
         df.CompiledSubDomain('near(x[0], 1) && x[1] < 0.5 + DOLFIN_EPS').mark(facet_f, 7)
+
+        mesh1 = xii.EmbeddedMesh(cell_f, 1)
+        boundaries1 = mesh1.translate_markers(facet_f, (1, 2, 3, 4))
+
+        mesh2 = xii.EmbeddedMesh(cell_f, 2)
+        boundaries2 = mesh2.translate_markers(facet_f, (1, 5, 6, 7))
+
+        interface_mesh = xii.EmbeddedMesh(boundaries1, (1, ))
+
+        yield (boundaries1, boundaries2, interface_mesh)
+
+def SplitUnitCubeMeshes():
+    '''Stream of meshes'''
+    while True:
+        ncells = yield
+
+        assert ncells >= 4
+        mesh = df.UnitCubeMesh(ncells, ncells, ncells)
+
+        cell_f = df.MeshFunction('size_t', mesh, 3, 1)
+        # Top is 1 bottom i 2
+        df.CompiledSubDomain('x[2] < 0.5 + DOLFIN_EPS').mark(cell_f, 2)
+
+        facet_f = df.MeshFunction('size_t', mesh, 2, 0)
+        #   3
+        # 4  2
+        #   1
+        # 5  7
+        #   6
+        df.CompiledSubDomain('near(x[2], 0.5)').mark(facet_f, 1)
+        df.CompiledSubDomain('(near(x[0], 0) || near(x[0], 1)) && x[2] > 0.5 - DOLFIN_EPS').mark(facet_f, 2)
+        df.CompiledSubDomain('near(x[2], 1)').mark(facet_f, 3)
+        df.CompiledSubDomain('(near(x[1], 0) || near(x[1], 1)) && x[2] > 0.5 - DOLFIN_EPS').mark(facet_f, 4)        
+        df.CompiledSubDomain('(near(x[0], 0) || near(x[0], 1)) && x[2] < 0.5 + DOLFIN_EPS').mark(facet_f, 5)
+        df.CompiledSubDomain('near(x[2], 0)').mark(facet_f, 6)
+        df.CompiledSubDomain('(near(x[1], 0) || near(x[1], 1)) && x[2] < 0.5 + DOLFIN_EPS').mark(facet_f, 7)
 
         mesh1 = xii.EmbeddedMesh(cell_f, 1)
         boundaries1 = mesh1.translate_markers(facet_f, (1, 2, 3, 4))
