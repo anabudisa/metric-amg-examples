@@ -19,7 +19,7 @@ These things are mostly done on `UnitCubeMesh` geometries to check correctness
 ## Others
 - [ ] Reduced $3d$ - $1d$ EMI model on cube with Sylvie Lorthois
 - [ ] Reduced $3d$ - $1d$ EMI model on brain + Brava
-- [ ] Biot-Stokes on brain geometry
+- [x] Biot-Stokes on brain geometry
 - [ ] (**maybe**) Introduce fractal interface in Reduced $2d$-$1d$ EMI model
 - [ ] (**maybe**) Staying with hypercube add more challenging interface
 
