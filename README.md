@@ -17,7 +17,7 @@ These things are mostly done on `UnitCubeMesh` geometries to check correctness
 - [x] vector Poisson-vector Poisson coupling by tangent vector components (arises in Biot-Stokes)
 
 ## Others
-- [ ] Reduced $3d$ - $1d$ EMI model on cube with Sylvie Lorthois
+- [x] Reduced $3d$ - $1d$ EMI model on cube with Sylvie Lorthois [network](https://www.nature.com/articles/s41467-021-27534-8)
 - [x] Reduced $3d$ - $1d$ EMI model on brain + Brava
 - [x] Biot-Stokes on brain geometry
 - [ ] (**maybe**) Introduce fractal interface in Reduced $2d$-$1d$ EMI model
@@ -28,3 +28,8 @@ These things are mostly done on `UnitCubeMesh` geometries to check correctness
 - FEniCS_ii
 - gmshnics
 - networkx
+- For meshes in `./data/` please reach out for how to cite
+
+<p align="center">
+  <img src="https://github.com/MiroK/metric-amg-examples/blob/master/doc/sylvie.png">
+</p>
