@@ -181,3 +181,33 @@ def SplitUnitCubeMeshes():
         interface_mesh = xii.EmbeddedMesh(boundaries1, (1, ))
 
         yield (boundaries1, boundaries2, interface_mesh)
+
+# --
+
+def EMISplitUnitSquareMeshes():
+    '''Stream of meshes'''
+    while True:
+        ncells = yield
+
+        assert ncells >= 4
+        mesh = df.UnitSquareMesh(ncells, ncells)
+
+        cell_f = df.MeshFunction('size_t', mesh, 2, 1)
+        # Top is 1 bottom i 2
+        df.CompiledSubDomain('x[1] < 0.5 + DOLFIN_EPS').mark(cell_f, 2)
+
+        facet_f = df.MeshFunction('size_t', mesh, 1, 0)
+        #   3
+        # 4  2
+        #   1
+        # 5  7
+        #   6
+        df.CompiledSubDomain('near(x[1], 0.5)').mark(facet_f, 1)
+        df.CompiledSubDomain('near(x[0], 1) && x[1] > 0.5 - DOLFIN_EPS').mark(facet_f, 2)
+        df.CompiledSubDomain('near(x[1], 1)').mark(facet_f, 3)
+        df.CompiledSubDomain('near(x[0], 0) && x[1] > 0.5 - DOLFIN_EPS').mark(facet_f, 4)
+        df.CompiledSubDomain('near(x[0], 0) && x[1] < 0.5 + DOLFIN_EPS').mark(facet_f, 5)
+        df.CompiledSubDomain('near(x[1], 0)').mark(facet_f, 6)
+        df.CompiledSubDomain('near(x[0], 1) && x[1] < 0.5 + DOLFIN_EPS').mark(facet_f, 7)
+
+        yield (cell_f, facet_f)
