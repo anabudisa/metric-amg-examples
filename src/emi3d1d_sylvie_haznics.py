@@ -122,7 +122,7 @@ if __name__ == '__main__':
 
     args, _ = parser.parse_known_args()
     
-    result_dir = f'./results/emi3d1d_sylvie_hazmath/'
+    result_dir = f'./results/emi3d1d_sylvie_haznics/'
     not os.path.exists(result_dir) and os.makedirs(result_dir)
 
     def get_path(what, ext):
@@ -148,11 +148,11 @@ if __name__ == '__main__':
 
     # Meshes
     mesh3d = Mesh()
-    with XDMFFile(mesh3d.mpi_comm(), './data/sylvie_hazmath/3d_c.xdmf') as f:
+    with XDMFFile(mesh3d.mpi_comm(), './data/sylvie_haznics/3d_c.xdmf') as f:
         f.read(mesh3d)
 
     mesh1d = Mesh()
-    with XDMFFile(mesh3d.mpi_comm(), './data/sylvie_hazmath/1d_graph.xdmf') as f:
+    with XDMFFile(mesh3d.mpi_comm(), './data/sylvie_haznics/1d_graph.xdmf') as f:
         f.read(mesh1d)
 
     radii = Constant(4)
