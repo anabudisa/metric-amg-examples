@@ -155,7 +155,7 @@ if __name__ == '__main__':
     with XDMFFile(mesh3d.mpi_comm(), './data/sylvie_hazmath/1d_graph.xdmf') as f:
         f.read(mesh1d)
 
-    radii = Constant(2)
+    radii = Constant(4)
     
     AA, bb, W, bcs = get_system(mesh3d, mesh1d, radii,
                                 data=test_case, pdegree=pdegree, parameters=params)
