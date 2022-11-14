@@ -3,6 +3,7 @@ from block.algebraic.petsc import LU, AMG
 from block.algebraic.hazmath import metricAMG
 import xii
 import dolfin as df
+import numpy as np
 
 
 def get_block_diag_precond(A, W, bcs):
@@ -183,9 +184,11 @@ def SplitUnitSquareMeshes():
         boundaries2 = mesh2.translate_markers(facet_f, (1, 5, 6, 7))
 
         interface_mesh = xii.EmbeddedMesh(boundaries1, (1, ))
+        interface_mesh.compute_embedding(boundaries2, (1, ))        
 
         yield (boundaries1, boundaries2, interface_mesh)
 
+        
 def SplitUnitCubeMeshes():
     '''Stream of meshes'''
     while True:
@@ -219,6 +222,7 @@ def SplitUnitCubeMeshes():
         boundaries2 = mesh2.translate_markers(facet_f, (1, 5, 6, 7))
 
         interface_mesh = xii.EmbeddedMesh(boundaries1, (1, ))
+        interface_mesh.compute_embedding(boundaries2, (1, ))
 
         yield (boundaries1, boundaries2, interface_mesh)
 
@@ -251,3 +255,25 @@ def EMISplitUnitSquareMeshes():
         df.CompiledSubDomain('near(x[0], 1) && x[1] < 0.5 + DOLFIN_EPS').mark(facet_f, 7)
 
         yield (cell_f, facet_f)
+
+# --------------------------------------------------------------------
+
+def get_interface_dofs(V, interface):
+    '''Extract dofs of V=V(mesh) on interface'''
+    mesh = V.mesh()
+
+    mapping = interface.parent_entity_map
+    assert mesh.id() in mapping
+
+    tdim = interface.topology().dim()
+    # For now interface should be manifold of co-dim 1
+    assert tdim == mesh.topology().dim()-1
+    mapping = mapping[mesh.id()][tdim]
+
+    facet_f = df.MeshFunction('size_t', mesh, tdim, 0)
+    facet_f.array()[list(mapping.values())] = 1
+
+    null = df.Constant(np.zeros(V.ufl_element().value_shape()))
+    dofs = list(df.DirichletBC(V, null, facet_f, 1).get_boundary_values().keys())
+
+    return dofs
