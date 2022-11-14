@@ -161,7 +161,7 @@ if __name__ == '__main__':
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
-    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre'))
+    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre', 'hazmath'))
     
     parser.add_argument('-save', type=int, default=0, choices=(0, 1), help='Save graphics')    
 
@@ -192,7 +192,8 @@ if __name__ == '__main__':
     table_error = []
 
     get_precond = {'diag': utils.get_block_diag_precond,
-                   'hypre': utils.get_hypre_monolithic_precond}[args.precond]
+                   'hypre': utils.get_hypre_monolithic_precond,
+                   'hazmath': utils.get_hazmath_metric_precond}[args.precond]
 
     mesh_generator = utils.EMISplitUnitSquareMeshes()
     next(mesh_generator)

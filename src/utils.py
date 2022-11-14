@@ -58,9 +58,10 @@ def get_hypre_monolithic_precond(A, W, bcs):
 def get_hazmath_metric_precond(A, W, bcs):
     '''Invert block operator via hazmath amg'''
     import haznics
+    import numpy as np
 
     AA = xii.ii_convert(A)
-    idofs = xii.ReductionOperator([len(W)], W)  # fixme: need a numpy vector of dtype int (indices of interface dof)
+    idofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
 
     parameters = {
         "prectype": 14,                             # which metric precond
