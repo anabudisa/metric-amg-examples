@@ -136,7 +136,10 @@ if __name__ == '__main__':
 
         AA, bb, W, bcs = get_system(bdries1, bdries2, interface_mesh, symgrad=bool(args.symgrad),
                                     data=test_case, pdegree=pdegree, parameters=params)
-
+        # NOTE: For dedicated metric solver from Haznics
+        interface_dofs = [utils.get_interface_dofs(Wi, interface_mesh) for Wi in W]
+        assert all(len(d) for d in interface_dofs)
+        
         cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b[i]-xi).norm("l2") for i, xi in enumerate(A*x)]}')
 
         then = time.time()
