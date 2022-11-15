@@ -246,8 +246,7 @@ def ThinStripMeshes2d(width, view=False, **kwargs):
     factory.synchronize()
 
     loops = (factory.addCurveLoop([lines[0], lines[10], lines[8], lines[9]]),
-             factory.addCurveLoop([lines[1], lines[11], lines[7], -lines[10]]),
-             factory.addCurveLoop([lines[2], lines[12], lines[6], -lines[11]]),
+             factory.addCurveLoop([lines[1], lines[2], lines[12], lines[6], lines[7], -lines[10]]),
              factory.addCurveLoop([lines[3], lines[4], lines[5], -lines[12]]))
 
     surfaces = [factory.addPlaneSurface([loop]) for loop in loops]
@@ -283,20 +282,20 @@ def ThinStripMeshes2d(width, view=False, **kwargs):
         nodes, topologies = msh_gmsh_model(model, 2)
         mesh, entity_functions = mesh_from_gmsh(nodes, topologies)
 
-        # 1 2 3 4
+        # 1 2 3
         cell_f, facet_f = entity_functions[2], entity_functions[1]
         #   4
         # 1   2
         #   3
         
-        mesh1 = xii.EmbeddedMesh(cell_f, (1, 2, 3))
+        mesh1 = xii.EmbeddedMesh(cell_f, (1, 2))
         boundaries1 = mesh1.translate_markers(facet_f, (1, 3, 4))
 
-        mesh2 = xii.EmbeddedMesh(cell_f, (2, 3, 4))
+        mesh2 = xii.EmbeddedMesh(cell_f, (2, 3))
         boundaries2 = mesh2.translate_markers(facet_f, (2, 3, 4))
 
-        strip = xii.EmbeddedMesh(mesh1.marking_function, (2, 3))
-        strip.compute_embedding(mesh2.marking_function, (2, 3))
+        strip = xii.EmbeddedMesh(mesh1.marking_function, (2, ))
+        strip.compute_embedding(mesh2.marking_function, (2, ))
         
         yield (boundaries1, boundaries2, strip)
         
