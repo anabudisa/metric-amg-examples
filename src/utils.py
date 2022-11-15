@@ -261,8 +261,9 @@ def ThinStripMeshes2d(width, view=False, **kwargs):
     #   3
     model.addPhysicalGroup(1, [lines[9]], 1)
     model.addPhysicalGroup(1, [lines[4]], 2)
-    model.addPhysicalGroup(1, [lines[0], lines[1], lines[2], lines[3]], 3)
-    model.addPhysicalGroup(1, [lines[5], lines[6], lines[7], lines[8]], 4)
+    # Leave out the boundary pieces that are also strip boundaries
+    model.addPhysicalGroup(1, [lines[0], lines[3]], 3)
+    model.addPhysicalGroup(1, [lines[5], lines[8]], 4)
 
     factory.synchronize()
 
