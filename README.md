@@ -16,7 +16,7 @@ These things are mostly done on `UnitCubeMesh` geometries to check correctness
 - [x] Bidomain model
 - [x] vector Poisson-vector Poisson coupling by full vector (arises in Elasticity-Poroelasticity)
 - [x] vector Poisson-vector Poisson coupling by tangent vector components (arises in Biot-Stokes)
-- [ ] EMI like model with coupling over a subdomain
+- [x] EMI like model with coupling over a (thin) subdomain
 
 ## Others
 - [x] Reduced $3d$ - $1d$ EMI model on cube with Sylvie Lorthois [network](https://www.nature.com/articles/s41467-021-27534-8)
