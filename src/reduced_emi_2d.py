@@ -209,6 +209,8 @@ if __name__ == '__main__':
         AA, bb, W, bcs = get_system(cell_f, facet_f,
                                     data=test_case, pdegree=pdegree, parameters=params)
 
+
+
         cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b[i]-xi).norm("l2") for i, xi in enumerate(A*x)]}')
 
         then = time.time()
