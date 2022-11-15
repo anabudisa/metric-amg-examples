@@ -56,16 +56,24 @@ def get_hypre_monolithic_precond(A, W, bcs):
     return  R.T*Minv*R
 
 
-def get_hazmath_metric_precond(A, W, bcs):
+def get_hazmath_metric_precond(A, W, bcs, interface_dofs=None):
     '''Invert block operator via hazmath amg'''
     import haznics
     import numpy as np
 
     AA = xii.ii_convert(A)
-    idofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+    R = xii.ReductionOperator([len(W)], W)
+    if not interface_dofs:
+        # assume second row of the block matrix is all interface dofs
+        # plus all dofs in the first block that are connected to second block via A[1][0]
+        csr = A[1][0].mat().getValuesCSR()
+        # import pdb; pdb.set_trace()
+        interface_dofs = np.unique(csr[1])  # unique columns from A[1][0].indices (or A10->JA)
+        interface_dofs = np.append(interface_dofs, np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32))
+        print(interface_dofs)
 
     parameters = {
-        "prectype": 14,                             # which metric precond
+        "prectype": 10,                             # which metric precond
                                                     # 10: direct (LU) on interface part + AMG on the whole matrix (nonsymmetric multiplicative)
                                                     # 11: direct (LU) on interface part + AMG on the whole matrix (additive)
                                                     # 12: Schwarz method on interface part + AMG on the whole matrix (nonsymmetric multiplicative)
@@ -90,11 +98,66 @@ def get_hazmath_metric_precond(A, W, bcs):
         "Schwarz_maxlvl": 2,                        # how many levels from dof to take
         "Schwarz_type": haznics.SCHWARZ_SYMMETRIC,  # (SCHWARZ_FORWARD, SCHWARZ_BACKWARD, SCHWARZ_SYMMETRIC)
         "Schwarz_blksolver": 32,                    # type of Schwarz block solver, 0 - iterative, 32 - UMFPACK
+        "print_level": 10,
     }
 
-    return metricAMG(AA, W, idofs, parameters=parameters)
+    Minv = metricAMG(AA, W, interface_dofs, parameters=parameters)
+
+    return R.T*Minv*R
 
 # ---
+
+def solve_haznics(A, b, W):
+    from block.algebraic.hazmath import block_mat_to_block_dCSRmat
+    import haznics
+    import numpy as np
+    import time
+
+    def block_to_haz(AA):
+        # first make sure the whole matrix is of block_mat type
+        if hasattr(AA, 'block_collapse'):
+            AA = AA.block_collapse()
+
+        # then make sure each block is a petsc matrix
+        brow, bcol = AA.blocks.shape
+        for i in range(brow):
+            for j in range(bcol):
+                AA[i][j] = xii.ii_collapse(AA[i][j])
+
+        AAhaz = block_mat_to_block_dCSRmat(AA)
+
+        return AAhaz
+
+    dimW = sum([VV.dim() for VV in W])
+    start_time = time.time()
+    # convert vectors
+    bb = xii.ii_convert(b)
+    b_np = bb[:]
+    bhaz = haznics.create_dvector(b_np)
+    xhaz = haznics.dvec_create_p(dimW)
+
+    # convert matrices
+    Ahaz = block_to_haz(A)
+    csr = A[1][0].mat().getValuesCSR()
+    # import pdb; pdb.set_trace()
+    interface_dofs = np.unique(csr[1])  # unique columns from A[1][0].indices (or A10->JA)
+    interface_dofs = np.append(interface_dofs, np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32))
+    idofs = haznics.create_ivector(interface_dofs)
+    print(f"{interface_dofs=}")
+
+    print("\n------------------- Data conversion time: ", time.time() - start_time, "\n")
+
+    # call solver
+    solve_start = time.time()
+    niters = haznics.fenics_metric_amg_solver_minimal(Ahaz, bhaz, xhaz, idofs)
+    solve_end = time.time() - solve_start
+
+    xx = xhaz.to_ndarray()
+    wh = xii.ii_Function(W)
+    wh[0].vector().set_local(xx[:W[0].dim()])
+    wh[1].vector().set_local(xx[W[0].dim():])
+
+    return niters, wh, solve_end
 
 GREEN = '\033[1;37;32m%s\033[0m'
 RED = '\033[1;37;31m%s\033[0m'
