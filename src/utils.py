@@ -1,6 +1,7 @@
+from gmshnics import msh_gmsh_model, mesh_from_gmsh
 from functools import partial
 from block.algebraic.petsc import LU, AMG
-import xii
+import xii, gmsh
 import dolfin as df
 import numpy as np
 
@@ -216,7 +217,93 @@ def EMISplitUnitSquareMeshes():
 
         yield (cell_f, facet_f)
 
-# --------------------------------------------------------------------
+
+def ThinStripMeshes2d(width, view=False, **kwargs):
+    '''[ [] ]'''
+    assert 0 < width < 0.5
+
+    gmsh.initialize(['', '-v', '0'] + sum([[f'-{key}', str(val)] for key, val in kwargs.items()], []))
+    model = gmsh.model
+    factory = model.occ
+
+    points = [[0, 0],
+              [0.5-width/2, 0],
+              [0.5, 0],
+              [0.5+width/2, 0],
+              [1, 0],
+              [1, 1],
+              [0.5+width/2, 1],
+              [0.5, 1],
+              [0.5-width/2, 1],
+              [0, 1]]
+    points = np.array([factory.addPoint(xi, yi, z=0) for xi, yi in points])
+
+    lines = [factory.addLine(points[p], points[q])
+             for (p, q) in [(0, 1), (1, 2), (2, 3), (3, 4),
+                            (4, 5), (5, 6), (6, 7), (7, 8), (8, 9), (9, 0),
+                            (1, 8), (2, 7), (3, 6)]]
+
+    factory.synchronize()
+
+    loops = (factory.addCurveLoop([lines[0], lines[10], lines[8], lines[9]]),
+             factory.addCurveLoop([lines[1], lines[11], lines[7], -lines[10]]),
+             factory.addCurveLoop([lines[2], lines[12], lines[6], -lines[11]]),
+             factory.addCurveLoop([lines[3], lines[4], lines[5], -lines[12]]))
+
+    surfaces = [factory.addPlaneSurface([loop]) for loop in loops]
+
+    factory.synchronize()
+    
+    [model.addPhysicalGroup(2, [surface], tag) for tag, surface in enumerate(surfaces, 1)]
+    # Only pick the outer as
+    #  4
+    # 1  2
+    #   3
+    model.addPhysicalGroup(1, [lines[9]], 1)
+    model.addPhysicalGroup(1, [lines[4]], 2)
+    model.addPhysicalGroup(1, [lines[0], lines[1], lines[2], lines[3]], 3)
+    model.addPhysicalGroup(1, [lines[5], lines[6], lines[7], lines[8]], 4)
+
+    factory.synchronize()
+
+    if view:
+        gmsh.fltk.initialize()
+        gmsh.fltk.run()
+
+    # These will stay the same for every resolution
+
+    while True:
+        mesh_size = yield
+
+        if mesh_size < 0: break
+        
+        gmsh.option.setNumber('Mesh.MeshSizeFactor', float(mesh_size))
+
+        nodes, topologies = msh_gmsh_model(model, 2)
+        mesh, entity_functions = mesh_from_gmsh(nodes, topologies)
+
+        # 1 2 3 4
+        cell_f, facet_f = entity_functions[2], entity_functions[1]
+        #   4
+        # 1   2
+        #   3
+        
+        mesh1 = xii.EmbeddedMesh(cell_f, (1, 2, 3))
+        boundaries1 = mesh1.translate_markers(facet_f, (1, 3, 4))
+
+        mesh2 = xii.EmbeddedMesh(cell_f, (2, 3, 4))
+        boundaries2 = mesh2.translate_markers(facet_f, (2, 3, 4))
+
+        strip = xii.EmbeddedMesh(mesh1.marking_function, (2, 3))
+        strip.compute_embedding(mesh2.marking_function, (2, 3))
+        
+        yield (boundaries1, boundaries2, strip)
+        
+        gmsh.model.mesh.clear()
+        
+    gmsh.finalize()        
+        
+# ---
 
 def get_interface_dofs(V, interface):
     '''Extract dofs of V=V(mesh) on interface'''
@@ -237,3 +324,35 @@ def get_interface_dofs(V, interface):
     dofs = list(df.DirichletBC(V, null, facet_f, 1).get_boundary_values().keys())
 
     return dofs
+
+
+def get_coupling_dofs(V, interface):
+    '''Extract dofs of V=V(mesh) on interface'''
+    mesh = V.mesh()
+
+    mapping = interface.parent_entity_map
+    assert mesh.id() in mapping
+
+    tdim = interface.topology().dim()
+    # For now interface should be a subdomain
+    assert tdim == mesh.topology().dim()
+    mapping = mapping[mesh.id()][tdim]
+
+    dm = V.dofmap()
+    dofs = np.concatenate([dm.cell_dofs(cell) for cell in mapping.values()])
+    
+    return np.unique(dofs)
+
+# --------------------------------------------------------------------
+
+if __name__ == '__main__':
+
+    meshes = ThinStripMeshes2d(width=0.2, view=False)
+    next(meshes)
+
+    for scale in (0.2, 0.1):
+        bdry1, bdry2, strip = meshes.send(scale)
+        next(meshes)
+
+    df.File('bdr1.pvd') << bdry1
+    df.File('bdr2.pvd') << bdry2    
