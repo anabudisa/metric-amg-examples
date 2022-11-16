@@ -411,6 +411,111 @@ def ThinStripMeshes3d(width, view=False, **kwargs):
         
     gmsh.finalize()        
 
+
+def ZigZagSplit2d(crack, view=False, **kwargs):
+    '''[__/\___] Unit square with a crack in the middle
+       [       ]
+    '''
+    assert not crack or all(-0.5 < p < 0.5 for p in crack)
+
+    gmsh.initialize(['', '-v', '0'] + sum([[f'-{key}', str(val)] for key, val in kwargs.items()], []))
+    model = gmsh.model
+    factory = model.occ
+
+    outer_points = [[1, 0],          # 0
+                    [1, 0.5],        
+                    [0, 0.5],  
+                    [0, 0],          # 3
+                    [0, -0.5],
+                    [1, -0.5]]       # 
+    outer_points = np.array([factory.addPoint(xi, yi, z=0) for xi, yi in outer_points])
+    # We can make the outer boundary
+    npoints = len(outer_points)
+    outer_lines = [factory.addLine(outer_points[i], outer_points[(i+1)%npoints])
+                   for i in range(npoints)]
+
+    # NOTE: crack[i] are y coordinates
+    x_crack = np.linspace(0, 1, len(crack)+2)[1:-1]
+    crack = np.c_[x_crack, crack]
+
+    crack_points = [outer_points[3]]
+    crack_points.extend(factory.addPoint(*p, z=0) for p in crack)
+    crack_points.append(outer_points[0])
+
+    factory.synchronize()
+
+    tangents = []
+    # Compute tangent vector
+    for Atag, Btag in zip(crack_points[:-1], crack_points[1:]):
+        A = model.getValue(0, Atag, [])[:2]
+        B = model.getValue(0, Btag, [])[:2]
+        t = np.array(B) - np.array(A)
+        t = t / np.linalg.norm(t)
+        tangents.append(t)
+        
+    crack_lines = [factory.addLine(crack_points[i], crack_points[i+1])
+                   for i in range(len(crack_points)-1)]
+    
+    factory.synchronize()
+
+    top_loop = [outer_lines[0], outer_lines[1], outer_lines[2]] + crack_lines
+    top_loop = factory.addCurveLoop(top_loop)
+    top_surface = factory.addPlaneSurface([top_loop])
+
+    bottom_loop = [outer_lines[3], outer_lines[4], outer_lines[5]] + [-l for l in crack_lines]
+    bottom_loop = factory.addCurveLoop(bottom_loop)
+    bottom_surface = factory.addPlaneSurface([bottom_loop])
+    
+    factory.synchronize()
+    
+    model.addPhysicalGroup(2, [top_surface], 1)
+    model.addPhysicalGroup(2, [bottom_surface], 2)
+
+    outer_line_tags = [model.addPhysicalGroup(1, [l], tag) for tag, l in enumerate(outer_lines, 2)]
+
+    Rot = np.array([[0, 1], [-1, 0]])
+    normals = {}
+    for tag, (l, tau) in enumerate(zip(crack_lines, tangents), 2+len(outer_lines)):
+        model.addPhysicalGroup(1, [l], tag)
+        normals[tag] = Rot@tau
+
+    yield normals
+        
+    factory.synchronize()
+
+    if view:
+        gmsh.fltk.initialize()
+        gmsh.fltk.run()
+
+    nol = len(outer_line_tags)
+    iface_tags = tuple(sorted(normals.keys()))
+    # These will stay the same for every resolution
+    while True:
+        mesh_size = yield
+
+        if mesh_size < 0: break
+        
+        gmsh.option.setNumber('Mesh.MeshSizeFactor', float(mesh_size))
+
+        nodes, topologies = msh_gmsh_model(model, 2)
+        mesh, entity_functions = mesh_from_gmsh(nodes, topologies)
+
+        cell_f, facet_f = entity_functions[2], entity_functions[1]
+
+        mesh1 = xii.EmbeddedMesh(cell_f, 1)
+        boundaries1 = mesh1.translate_markers(facet_f, tuple(outer_line_tags[:nol//2]) + iface_tags)
+
+        mesh2 = xii.EmbeddedMesh(cell_f, 2)
+        boundaries2 = mesh2.translate_markers(facet_f, tuple(outer_line_tags[nol//2:]) + iface_tags)
+
+        interface_mesh = xii.EmbeddedMesh(boundaries1, iface_tags)
+        interface_mesh.compute_embedding(boundaries2, iface_tags)
+
+        yield (boundaries1, boundaries2, interface_mesh)
+        
+        gmsh.model.mesh.clear()
+        
+    gmsh.finalize()        
     
 # ---
 
@@ -456,7 +561,10 @@ def get_coupling_dofs(V, interface):
 
 if __name__ == '__main__':
 
-    meshes = ThinStripMeshes3d(width=0.2, view=True)
+    crack = [0.2, 0, -0.3]
+    
+    meshes = ZigZagSplit2d(crack, view=True)
+    normals = next(meshes)
     next(meshes)
 
     for scale in (0.2, 0.1):
