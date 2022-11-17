@@ -203,7 +203,8 @@ if __name__ == '__main__':
         dump(b0_, 'b0.npy') 
         dump(b1_, 'b1.npy')
         print('Write done')
-        
+
+        exit()
     # ----
 
     cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b[i]-xi).norm("l2") for i, xi in enumerate(A*x)]}')
