@@ -4,3 +4,7 @@
 
 results/
 __pycache__/
+
+*.pvd
+*.vtu
+*.txt
