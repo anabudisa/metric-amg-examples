@@ -4,144 +4,7 @@ from xii import *
 import sympy as sp
 import ulfy
 
-
-def setup_mms(params):
-    '''
-    We solve
-
-    -div(kappa_i*grad u_i) = f_i in Omega_i 
-
-    with coupling conditions and mixed boundary conditions. Domains differ 
-    by topological degree
-    '''
-    mesh = UnitSquareMesh(1, 1)  # Dummy
-
-    kappa1, kappa2, gamma = Constant(1), Constant(2), Constant(3)
-
-    x, y = SpatialCoordinate(mesh)
-    u = sin(2*pi*x)
-    
-    u1 = -cos(pi*(x + y))*sin(pi*(y-0.5))
-    u2 = sin(pi*(x + y))*sin(pi*(y-0.5))
-
-    tau = Constant((1, 0))
-    
-    sigma1 = kappa1*grad(u1)
-    sigma2 = kappa2*grad(u2)
-    sigma = (kappa1+kappa2)*dot(grad(u), tau)
-
-    f1 = -div(sigma1) 
-    f2 = -div(sigma2)
-    f = -dot(grad(sigma), tau) + gamma*(u - u1)
-
-    kappa10, kappa20, gamma0 = sp.symbols('kappa1, kappa2, gamma')
-    subs = {kappa1: kappa10, kappa2: kappa20, gamma: gamma0}
-
-    as_expression = lambda f: ulfy.Expression(f,
-                                              subs=subs,
-                                              degree=4,
-                                              kappa1=params.kappa1,
-                                              kappa2=params.kappa2,
-                                              gamma=params.gamma)
-
-    n1, n2 = Constant((0, -1)), Constant((0, 1))
-            
-    data = {
-        'u1': as_expression(u1),
-        'flux1': as_expression(sigma1),
-        'f1': as_expression(f1),
-        # --
-        'u2': as_expression(u2),
-        'flux2': as_expression(sigma2),
-        'f2': as_expression(f2),
-        #
-        'u': as_expression(u),
-        'flux': as_expression(sigma),
-        'f': as_expression(f),
-        #
-        'g': as_expression(-dot(sigma1, n1) - dot(sigma2, n2) -gamma*(u1-u)),
-    }
-    return data
-
-
-
-def get_system(cell_f, facet_f, data, pdegree, parameters, strict=True):
-    """Setup the linear system A*x = b in W where W has bcs"""
-    kappa1, kappa2, gamma = (Constant(parameters.kappa1),
-                             Constant(parameters.kappa2),
-                             Constant(parameters.gamma))
-
-    mesh2d = cell_f.mesh()
-    mesh1d = EmbeddedMesh(facet_f, 1)
-    V1 = FunctionSpace(mesh2d, 'Lagrange', pdegree)
-    V2 = FunctionSpace(mesh1d, 'Lagrange', pdegree)
-    
-    W = [V1, V2]
-
-    u1, u2 = map(TrialFunction, W)
-    v1, v2 = map(TestFunction, W)
-
-    ds = Measure('ds', domain=mesh2d, subdomain_data=facet_f)
-    n = FacetNormal(mesh2d)
-
-    # ---
-
-    Tu1, Tv1 = Trace(u1, mesh1d), Trace(v1, mesh1d)
-    dx_ = Measure('dx', domain=mesh1d)
-    dX = Measure('dx', domain=mesh2d, subdomain_data=cell_f)
-
-    tau = TangentCurve(mesh1d)
-
-    a = block_form(W, 2)
-    a[0][0] = (inner(kappa1*grad(u1), grad(v1))*dX(1) + inner(kappa2*grad(u1), grad(v1))*dX(2)
-               + gamma*inner(Tu1, Tv1)*dx_)
-    a[0][1] = -gamma*inner(u2, Tv1)*dx_
-    a[1][0] = -gamma*inner(Tu1, v2)*dx_
-    a[1][1] = inner((kappa2+kappa1)*dot(grad(u2), tau), dot(grad(v2), tau))*dx_ + gamma*inner(u2, v2)*dx_
-               
-    f1, f2, f = data['f1'], data['f2'], data['f']
-    sigma1, sigma2 = data['flux1'], data['flux2']
-    u1_data, u2_data = data['u1'], data['u2']
-
-    assert not strict or sqrt(abs(assemble(inner(u1_data-u2_data, u1_data-u2_data)*dx_))) < 1E-10
-
-    L = block_form(W, 1)
-    L[0] = inner(f1, v1)*dX(1) + inner(f2, v1)*dX(2)
-    L[1] = inner(f, v2)*dx_
-
-    #  3
-    # 4 2
-    #  1
-    # 5 7
-    #  6
-    dirichlet_tags1 = (2, 4)
-    neumann_tags1 = (3, )
-
-    dirichlet_tags2 = (5, 7)
-    neumann_tags2 = (6, )
-    
-    # --
-    
-    # Neumann
-    # Add full stress
-    L[0] += sum(inner(dot(sigma1, n), v1)*ds(tag) for tag in neumann_tags1)
-    L[0] += sum(inner(dot(sigma2, n), v1)*ds(tag) for tag in neumann_tags2)
-
-    g = data['g']
-    print('>>>', sqrt(abs(assemble(inner(g, g)*dx_))))
-    L[0] += -inner(g, Tv1)*dx_
-
-    V1_bcs = [DirichletBC(V1, u1_data, facet_f, tag) for tag in dirichlet_tags1]
-    V1_bcs.extend([DirichletBC(V1, u2_data, facet_f, tag) for tag in dirichlet_tags2])
-
-    u_data = data['u']
-    V2_bcs = [DirichletBC(V2, u_data, 'on_boundary')]
-    bcs = [V1_bcs, V2_bcs]
-
-    A, b = map(ii_assemble, (a, L))
-    A, b = apply_bc(A, b, bcs)
-
-    return A, b, W, bcs
+from reduced_emi_2d import setup_mms, get_system
 
 # --------------------------------------------------------------------
 
@@ -167,7 +30,7 @@ if __name__ == '__main__':
 
     args, _ = parser.parse_known_args()
     
-    result_dir = f'./results/reduced_emi_2d/'
+    result_dir = f'./results/reduced_emi_2d_haznics/'
     not os.path.exists(result_dir) and os.makedirs(result_dir)
 
     def get_path(what, ext):
@@ -194,22 +57,35 @@ if __name__ == '__main__':
     get_precond = {'diag': utils.get_block_diag_precond,
                    'hypre': utils.get_hypre_monolithic_precond}[args.precond]
 
-    mesh_generator = utils.EMISplitUnitSquareMeshes()
-    next(mesh_generator)
+    # NOTE: because of the geometry this example is not exacted to converge
+    # to the manufactured solution (which is for straight crack). Crack splits
+    # the unit square into two halves - it is specified by y coordinates of its
+    # interior points where x are assumed to be regularly spaced in (0, 1).
+    np.random.seed(46)
+
+    crack = 0.8*np.random.rand(20)
+    print(crack)
+    mesh_generator = utils.ReducedZigZagSplit2d(crack=crack)
+    normals = next(mesh_generator)
 
     u1_true, u2_true, u_true = test_case['u1'], test_case['u2'], test_case['u']
     # Let's do this thing
     errors0, h0, diameters = None, None, None
-    for ncells in (2**i for i in range(4, 4+args.nrefs)):
+    for ncells in (1./2**i for i in range(1, 1+args.nrefs)):
+        next(mesh_generator)        
         meshes = mesh_generator.send(ncells)
-        next(mesh_generator)
 
         cell_f, facet_f = meshes
-
+        # Do the surgery here - 2, 3, 4 and 5, 6, 7 are boundaries. ZZ
+        # marks interface with > 7 but we want to make it all the same as 1
+        # for simplicity
+        facet_f.array()[np.where(facet_f.array() > 7)] = 1
+        # What is the interface length
+        print('\t|iface|', assemble(Constant(1)*dS(domain=facet_f.mesh(), subdomain_data=facet_f)(1)))
+        
         AA, bb, W, bcs = get_system(cell_f, facet_f,
-                                    data=test_case, pdegree=pdegree, parameters=params)
-
-
+                                    data=test_case, pdegree=pdegree, parameters=params,
+                                    strict=False)
 
         cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b[i]-xi).norm("l2") for i, xi in enumerate(A*x)]}')
 
@@ -277,6 +153,61 @@ if __name__ == '__main__':
         
         with open(get_path('error', 'txt'), 'a') as out:
             out.write('%s\n' % (' '.join(tuple(map(str, error_row)))))
+            
+    # NOTE: Storing the system for Hazmath solve. This will make sense
+    # once we assemble it on Ludmil's meshes but anyways
+    print('Write begin')
+    from petsc4py import PETSc
+    import scipy.sparse as sparse
+
+    [[A, Bt],
+     [B, C]] = AA
+
+    b0, b1 = bb
+
+    V0perm = PETSc.IS().createGeneral(np.array(vertex_to_dof_map(W[0]), dtype='int32'))
+    V1perm = PETSc.IS().createGeneral(np.array(vertex_to_dof_map(W[1]), dtype='int32'))     
+
+    A_ = as_backend_type(ii_convert(A)).mat().permute(V0perm, V0perm)
+    Bt_ = as_backend_type(ii_convert(Bt)).mat().permute(V0perm, V1perm)
+    B_ = as_backend_type(ii_convert(B)).mat().permute(V1perm, V0perm)
+    C_ = as_backend_type(ii_convert(C)).mat().permute(V1perm, V1perm)
+
+    b0_ = as_backend_type(ii_convert(b0)).vec()
+    b0_.permute(V0perm)
+    b1_ = as_backend_type(ii_convert(b1)).vec()
+    b1_.permute(V1perm)     
+
+    def dump(thing, path):
+        if isinstance(thing, PETSc.Vec):
+            assert np.all(np.isfinite(thing.array))
+            return np.save(path, thing.array)
+
+        m = sparse.csr_matrix(thing.getValuesCSR()[::-1]).tocoo()
+        assert np.all(np.isfinite(m.data))
+        return np.save(path, np.c_[m.row, m.col, m.data])
+
+    dump(A_, 'A.npy') 
+    dump(Bt_, 'Bt.npy') 
+    dump(B_, 'B.npy') 
+    dump(C_, 'C.npy') 
+
+    dump(b0_, 'b0.npy') 
+    dump(b1_, 'b1.npy')
+    print('Write done')
+
+    # Here we dump the 1d graph
+    uh1d = wh[1]
+    mesh1d = uh1d.function_space().mesh()
+
+    num_nodes = mesh1d.num_vertices()
+    num_edges = mesh1d.num_cells()
+    
+    nodes_x = mesh1d.coordinates().flatten().tolist()
+    edges = mesh1d.cells().flatten().tolist()
+
+    hazmath_graph = [num_nodes, num_edges, mesh1d.geometry().dim()] + nodes_x + edges
+    np.save('reduced_emi2d_graph.npy', hazmath_graph)
         
     if args.save:
         File(get_path('uh0', 'pvd')) << wh[0]
