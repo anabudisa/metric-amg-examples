@@ -8,3 +8,6 @@ __pycache__/
 *.pvd
 *.vtu
 *.txt
+*.npy
+*.tar
+*.tar.gz
