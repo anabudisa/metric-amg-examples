@@ -74,20 +74,20 @@ def get_system(mesh3d, mesh1d, radius, data, pdegree, parameters):
 
     cylinder = Circle(radius=radius, degree=5)
     Ru1, Rv1 = Average(u1, mesh1d, cylinder), Average(v1, mesh1d, cylinder)
-    
+
     dx_ = Measure('dx', domain=mesh1d)
 
     a = block_form(W, 2)
-    a[0][0] = inner(kappa1*grad(u1), grad(v1))*dx + gamma*inner(Ru1, Rv1)*dx_ 
-    a[0][1] = -gamma*inner(u2, Rv1)*dx_
-    a[1][0] = -gamma*inner(Ru1, v2)*dx_
-    a[1][1] = inner(kappa2*grad(u2), grad(v2))*dx_ + gamma*inner(u2, v2)*dx_ 
+    a[0][0] = inner(kappa1 * grad(u1), grad(v1)) * dx + gamma * inner(Ru1, Rv1) * dx_
+    a[0][1] = -gamma * inner(u2, Rv1) * dx_
+    a[1][0] = -gamma * inner(Ru1, v2) * dx_
+    a[1][1] = inner(kappa2 * grad(u2), grad(v2)) * dx_ + gamma * inner(u2, v2) * dx_
                
     f1, f2 = data['f1'], data['f2']
 
     L = block_form(W, 1)
-    L[0] = inner(Constant(0), v1)*dx
-    L[1] = inner(Constant(0), v2)*dx_
+    L[0] = inner(Constant(0), v1) * dx
+    L[1] = inner(Constant(0), v2) * dx_
 
     V1_bcs = []
     u2_data = data['u2']
@@ -116,7 +116,7 @@ if __name__ == '__main__':
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
-    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre'))
+    parser.add_argument('-precond', type=str, default='hazmath', choices=('diag', 'hypre', 'hazmath'))
     
     parser.add_argument('-save', type=int, default=0, choices=(0, 1), help='Save graphics')    
 
@@ -129,13 +129,6 @@ if __name__ == '__main__':
         template_path = f'{what}_precond{args.precond}_kappa1{args.kappa1}_kappa2{args.kappa2}_gamma{args.gamma}_pdegree{args.pdegree}.{ext}'
         return os.path.join(result_dir, template_path)
 
-    Params = namedtuple('Params', ('kappa1', 'kappa2', 'gamma'))
-    params = Params(args.kappa1, args.kappa2, args.gamma)
-    utils.print_red(str(params))
-    
-    # Setup MMS
-    test_case = setup_mms(params)
-
     # Setup problem geometry and discretization
     pdegree = args.pdegree
 
@@ -144,7 +137,8 @@ if __name__ == '__main__':
     table_ksp = []
 
     get_precond = {'diag': utils.get_block_diag_precond,
-                   'hypre': utils.get_hypre_monolithic_precond}[args.precond]
+                   'hypre': utils.get_hypre_monolithic_precond,
+                   'hazmath': utils.get_hazmath_metric_precond}[args.precond]
 
     # Meshes
     mesh3d = Mesh()
@@ -152,32 +146,115 @@ if __name__ == '__main__':
         f.read(mesh3d)
 
     mesh1d = Mesh()
-    with XDMFFile(mesh3d.mpi_comm(), './data/sylvie_haznics/1d_graph.xdmf') as f:
+    with XDMFFile(mesh1d.mpi_comm(), './data/sylvie_haznics/1d_graph.xdmf') as f:
         f.read(mesh1d)
 
-    radii = Constant(4)
-    
+    mesh1d_radii = MeshFunction('double', mesh1d, mesh1d.topology().dim())
+    with XDMFFile(mesh1d.mpi_comm(), './data/sylvie_haznics/1d_graph.xdmf') as f:
+        f.read(mesh1d_radii, 'thickness')
+
+    # Get radius info
+    P0 = FunctionSpace(mesh1d, 'DG', 0)
+    radii = Function(P0)
+    mesh_radii = mesh1d_radii.array()
+    radii.vector().set_local(mesh_radii)
+
+    avg_radius = sum(mesh_radii)/mesh_radii.shape[0]
+    Params = namedtuple('Params', ('kappa1', 'kappa2', 'gamma'))
+    params = Params(args.kappa1, args.kappa2*(avg_radius**2), args.gamma*avg_radius)
+    utils.print_red(str(params))
+
+    # Setup MMS
+    test_case = setup_mms(params)
     AA, bb, W, bcs = get_system(mesh3d, mesh1d, radii,
                                 data=test_case, pdegree=pdegree, parameters=params)
+
+    dump = True
+    if dump:
+        print('Write begin')
+        from petsc4py import PETSc
+        import scipy.sparse as sparse
+
+        [[A, Bt],
+         [B, C]] = AA
+        b0, b1 = bb
+        V0perm = PETSc.IS().createGeneral(np.array(vertex_to_dof_map(W[0]), dtype='int32'))
+        V1perm = PETSc.IS().createGeneral(np.array(vertex_to_dof_map(W[1]), dtype='int32'))
+        """A_ = as_backend_type(ii_convert(A)).mat().permute(V0perm, V0perm)
+        Bt_ = as_backend_type(ii_convert(Bt)).mat().permute(V0perm, V1perm)
+        B_ = as_backend_type(ii_convert(B)).mat().permute(V1perm, V0perm)
+        C_ = as_backend_type(ii_convert(C)).mat().permute(V1perm, V1perm)
+
+        b0_ = as_backend_type(ii_convert(b0)).vec()
+        b0_.permute(V0perm)
+        b1_ = as_backend_type(ii_convert(b1)).vec()
+        b1_.permute(V1perm)
+
+        csr = B_.getValuesCSR()
+        # import pdb; pdb.set_trace()
+        interface_dofs = np.unique(csr[1])  # unique columns from A[1][0].indices (or A10->JA)
+        interface_dofs = np.append(interface_dofs, np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32))
+
+        def dump(thing, path):
+            if isinstance(thing, PETSc.Vec):
+                assert np.all(np.isfinite(thing.array))
+                return np.save(path, thing.array)
+            m = sparse.csr_matrix(thing.getValuesCSR()[::-1]).tocoo()
+            assert np.all(np.isfinite(m.data))
+            return np.save(path, np.c_[m.row, m.col, m.data])
+
+
+        dump(A_, 'A.npy')
+        dump(Bt_, 'Bt.npy')
+        dump(B_, 'B.npy')
+        dump(C_, 'C.npy')
+        dump(b0_, 'b0.npy')
+        dump(b1_, 'b1.npy')
+        assert np.all(np.isfinite(interface_dofs.data))
+        np.save('idofs.npy', interface_dofs)
+        print('Write done')"""
+
+        Vunperm = (np.array(dof_to_vertex_map(W[0]), dtype='int32'), np.array(dof_to_vertex_map(W[1]), dtype='int32'))
+        sol = np.loadtxt("./solution.txt")
+        sol_size = int(sol[0])
+        sol = sol[1:]
+        xx = (sol[:W[0].dim()], sol[W[0].dim():sol_size])
+
+        wh = ii_Function(W)
+        import pdb;pdb.set_trace()
+        for i, xxi in enumerate(xx):
+            xxi = xxi[Vunperm[i]]
+            wh[i].vector().set_local(xxi)
+
+        File(get_path('uh0', 'pvd')) << wh[0]
+        File(get_path('uh1', 'pvd')) << wh[1]
+
+    exit()
 
     cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b[i]-xi).norm("l2") for i, xi in enumerate(A*x)]}')
 
     then = time.time()
-    # For simplicity only use block diagonal preconditioner
-    BB = get_precond(AA, W, bcs)
+    if args.precond == "hazmath":
+        # niters, wh, ksp_dt = utils.solve_haznics2(AA, bb, W, M, C)
+        niters, wh, ksp_dt = utils.solve_haznics(AA, bb, W)
+        r_norm = 0
+        cond = -1
+    else:
+        # For simplicity only use block diagonal preconditioner
+        BB = get_precond(AA, W, bcs)
 
-    AAinv = ConjGrad(AA, precond=BB, tolerance=1E-10, show=4, maxiter=500, callback=cbk)
-    xx = AAinv * bb
-    ksp_dt = time.time() - then
+        AAinv = ConjGrad(AA, precond=BB, tolerance=1E-10, show=4, maxiter=500, callback=cbk)
+        xx = AAinv * bb
+        ksp_dt = time.time() - then
 
-    wh = ii_Function(W)
-    for i, xxi in enumerate(xx):
-        wh[i].vector().axpy(1, xxi)
-    niters = len(AAinv.residuals)
-    r_norm = AAinv.residuals[-1]
+        wh = ii_Function(W)
+        for i, xxi in enumerate(xx):
+            wh[i].vector().axpy(1, xxi)
+        niters = len(AAinv.residuals)
+        r_norm = AAinv.residuals[-1]
 
-    eigenvalues = AAinv.eigenvalue_estimates()
-    cond = max(eigenvalues)/min(eigenvalues)
+        eigenvalues = AAinv.eigenvalue_estimates()
+        cond = max(eigenvalues)/min(eigenvalues)
 
     h = W[0].mesh().hmin()
     ndofs = sum(Wi.dim() for Wi in W)

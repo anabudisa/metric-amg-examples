@@ -1,4 +1,5 @@
 # Primal formulation w/out the multiplier
+import xii.assembler.trace_matrix
 from dolfin import *
 from xii import *
 import sympy as sp
@@ -214,28 +215,28 @@ if __name__ == '__main__':
 
         then = time.time()
         # For simplicity only use block diagonal preconditioner
-        if args.precond == "hazmath":
-            niters, wh, ksp_dt = utils.solve_haznics(AA, bb, W)
-            r_norm = 0
+        # if args.precond == "hazmath":
+        #     niters, wh, ksp_dt = utils.solve_haznics(AA, bb, W)
+        #     r_norm = 0
+        #     cond = -1
+        # else:
+        BB = get_precond(AA, W, bcs)
+
+        AAinv = ConjGrad(AA, precond=BB, tolerance=1E-6, show=4, maxiter=500, callback=cbk)
+        xx = AAinv * bb
+        ksp_dt = time.time() - then
+
+        wh = ii_Function(W)
+        for i, xxi in enumerate(xx):
+            wh[i].vector().axpy(1, xxi)
+        niters = len(AAinv.residuals)
+        r_norm = AAinv.residuals[-1]
+
+        try:
+            eigenvalues = AAinv.eigenvalue_estimates()
+            cond = max(eigenvalues)/min(eigenvalues)
+        except:
             cond = -1
-        else:
-            BB = get_precond(AA, W, bcs)
-
-            AAinv = ConjGrad(AA, precond=BB, tolerance=1E-10, show=4, maxiter=500, callback=cbk)
-            xx = AAinv * bb
-            ksp_dt = time.time() - then
-
-            wh = ii_Function(W)
-            for i, xxi in enumerate(xx):
-                wh[i].vector().axpy(1, xxi)
-            niters = len(AAinv.residuals)
-            r_norm = AAinv.residuals[-1]
-
-            try:
-                eigenvalues = AAinv.eigenvalue_estimates()
-                cond = max(eigenvalues)/min(eigenvalues)
-            except:
-                cond = -1
 
         h = W[0].mesh().hmin()
         ndofs = sum(Wi.dim() for Wi in W)

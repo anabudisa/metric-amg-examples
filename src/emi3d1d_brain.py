@@ -1,7 +1,7 @@
 #
 # Solve on one mesh
 #
-
+import xii.assembler.average_matrix
 from dolfin import *
 from xii import *
 import sympy as sp
@@ -82,7 +82,7 @@ def get_system(mesh3d, mesh1d, radius, data, pdegree, parameters):
     a[0][1] = -gamma*inner(u2, Rv1)*dx_
     a[1][0] = -gamma*inner(Ru1, v2)*dx_
     a[1][1] = inner(kappa2*dot(grad(u2), tau), dot(grad(v2), tau))*dx_ + gamma*inner(u2, v2)*dx_
-               
+
     f1, f2 = data['f1'], data['f2']
 
     L = block_form(W, 1)
@@ -116,7 +116,7 @@ if __name__ == '__main__':
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
-    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre'))
+    parser.add_argument('-precond', type=str, default='hazmath', choices=('diag', 'hypre', 'hazmath'))
     
     parser.add_argument('-save', type=int, default=0, choices=(0, 1), help='Save graphics')    
 
@@ -144,7 +144,8 @@ if __name__ == '__main__':
     table_ksp = []
 
     get_precond = {'diag': utils.get_block_diag_precond,
-                   'hypre': utils.get_hypre_monolithic_precond}[args.precond]
+                   'hypre': utils.get_hypre_monolithic_precond,
+                   'hazmath': utils.get_hazmath_metric_precond}[args.precond]
 
     # Meshes
     mesh3d = Mesh()
@@ -171,20 +172,26 @@ if __name__ == '__main__':
 
     then = time.time()
     # For simplicity only use block diagonal preconditioner
-    BB = get_precond(AA, W, bcs)
+    if args.precond == "hazmath":
+        # niters, wh, ksp_dt = utils.solve_haznics2(AA, bb, W, M, C)
+        niters, wh, ksp_dt = utils.solve_haznics(AA, bb, W)
+        r_norm = 0
+        cond = -1
+    else:
+        BB = get_precond(AA, W, bcs)
 
-    AAinv = ConjGrad(AA, precond=BB, tolerance=1E-10, show=4, maxiter=500, callback=cbk)
-    xx = AAinv * bb
-    ksp_dt = time.time() - then
+        AAinv = ConjGrad(AA, precond=BB, tolerance=1E-10, show=4, maxiter=500, callback=cbk)
+        xx = AAinv * bb
+        ksp_dt = time.time() - then
 
-    wh = ii_Function(W)
-    for i, xxi in enumerate(xx):
-        wh[i].vector().axpy(1, xxi)
-    niters = len(AAinv.residuals)
-    r_norm = AAinv.residuals[-1]
+        wh = ii_Function(W)
+        for i, xxi in enumerate(xx):
+            wh[i].vector().axpy(1, xxi)
+        niters = len(AAinv.residuals)
+        r_norm = AAinv.residuals[-1]
 
-    eigenvalues = AAinv.eigenvalue_estimates()
-    cond = max(eigenvalues)/min(eigenvalues)
+        eigenvalues = AAinv.eigenvalue_estimates()
+        cond = max(eigenvalues)/min(eigenvalues)
 
     h = W[0].mesh().hmin()
     ndofs = sum(Wi.dim() for Wi in W)
