@@ -69,7 +69,7 @@ def get_hazmath_metric_precond(A, W, bcs, interface_dofs=None):
     R = xii.ReductionOperator([len(W)], W)
 
     parameters = {
-        "prectype": 10,  # which metric precond
+        "prectype": 14,  # which metric precond
         # 10: direct (LU) on interface part + AMG on the whole matrix (nonsymmetric multiplicative)
         # 11: direct (LU) on interface part + AMG on the whole matrix (additive)
         # 12: Schwarz method on interface part + AMG on the whole matrix (nonsymmetric multiplicative)

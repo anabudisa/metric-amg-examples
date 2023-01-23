@@ -28,8 +28,8 @@ def setup_mms(params):
     u1 = x + y + 2*z
     u2 = x - y + z
 
-    sigma1 = kappa1*grad(u1)
-    sigma2 = kappa2*grad(u2)
+    sigma1 = kappa1*grad(u1) + kappa1*u1
+    sigma2 = kappa2*grad(u2) + kappa2*u2
 
     f1 = -div(sigma1) 
     f2 = -div(sigma2) 
@@ -157,7 +157,7 @@ if __name__ == '__main__':
         h5.read(mesh1d, '/mesh', False)
 
     mesh1d_radii = MeshFunction('double', mesh1d, 1, 0)
-    with HDF5File(mesh1d.mpi_comm(), './data/brava/BG001_data.h5', 'r') as h5:    
+    with HDF5File(mesh1d.mpi_comm(), './data/brava/BG001_data.h5', 'r') as h5:
         h5.read(mesh1d_radii, '/radii_cell_foo')
 
     # Get radius info
