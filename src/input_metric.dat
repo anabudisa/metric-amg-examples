@@ -50,8 +50,8 @@ nonlinear_itsolver_toltype	= 0 	% type of tolerance for nonlinear solver 1 - ||n
 
 linear_itsolver_type		= 1   	% 0 Direct Solve | 1 CG | 2 MINRES | 3 GMRES
 linear_itsolver_maxit		= 1000  	% maximal iterations of linear iterative solver
-linear_itsolver_tol		= 1e-10  % tolerance for linear iterative solver
-linear_stop_type		= 1     	% 1 ||r||/||b|| | 2 ||r||_B/||b||_B | % 3 ||r||/||x||
+linear_itsolver_tol		= 1e-8  % tolerance for linear iterative solver
+linear_stop_type		= 2     	% 1 ||r||/||b|| | 2 ||r||_B/||b||_B | % 3 ||r||/||x||
 linear_restart 			= 100		% restart for GMRes
 
 linear_precond_type		= 14		%  0 Null | 1 Diag | 2 AMG
@@ -65,7 +65,7 @@ linear_precond_type		= 14		%  0 Null | 1 Diag | 2 AMG
 % parameters for Algebraic Multigrid           %
 %----------------------------------------------%
 
-AMG_type 			= SA	% UA Unsmoothed AMG | SA Smoothed AMG | MUA Metric Unsmoothed AMG | MSA Metric Smoothed AMG
+AMG_type 			= UA	% UA Unsmoothed AMG | SA Smoothed AMG | MUA Metric Unsmoothed AMG | MSA Metric Smoothed AMG
 AMG_cycle_type	    = V    % V V-cycle | W W-cycle | A AMLI-cycle | NA Nonlinear AMLI-cycle | ADD additive cycle
 AMG_levels			= 10	%
 AMG_tol				= 1e-8
