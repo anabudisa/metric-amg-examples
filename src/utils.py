@@ -72,7 +72,7 @@ def get_hazmath_amg_precond(A, W, bcs):
     parameters = {
         "prectype": 2,  # which metric precond
         "AMG_type": haznics.UA_AMG,  # (UA, SA) + _AMG
-        "cycle_type": haznics.V_CYCLE,  # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
+        "cycle_type": haznics.W_CYCLE,  # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
         "max_levels": 10,
         "maxit": 1,
         "smoother": haznics.SMOOTHER_GS,  # SMOOTHER_ + (JACOBI, GS, SGS, SSOR, ...) after schwarz method
@@ -82,7 +82,7 @@ def get_hazmath_amg_precond(A, W, bcs):
         "coarse_dof": 100,
         "coarse_solver": 32,  # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
         "coarse_scaling": haznics.OFF,  # (OFF, ON)
-        "aggregation_type": haznics.VMB,  # (VMB, MIS, MWM, HEC)
+        "aggregation_type": haznics.HEC,  # (VMB, MIS, MWM, HEC)
         "strong_coupled": 0.0,  # threshold
         "max_aggregation": 20,
         "Schwarz_levels": 1,  # number for levels for Schwarz smoother
@@ -117,7 +117,7 @@ def get_hazmath_metric_precond(A, W, bcs, interface_dofs=None):
         "coarse_dof": 100,
         "coarse_solver": 32,  # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
         "coarse_scaling": haznics.OFF,  # (OFF, ON)
-        "aggregation_type": haznics.VMB,  # (VMB, MIS, MWM, HEC)
+        "aggregation_type": haznics.HEC,  # (VMB, MIS, MWM, HEC)
         "strong_coupled": 0.0,  # threshold?
         "max_aggregation": 20,
         "Schwarz_levels": 1,  # number for levels where Schwarz smoother is used (1 starts with the finest level)
@@ -142,8 +142,8 @@ def get_hazmath_metric_precond_mono(A, W, bcs, interface_dofs=None):
     import haznics
 
     parameters = {
-        "AMG_type": haznics.SA_AMG,  # (UA, SA) + _AMG
-        "cycle_type": haznics.V_CYCLE,  # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
+        "AMG_type": haznics.UA_AMG,  # (UA, SA) + _AMG
+        "cycle_type": haznics.W_CYCLE,  # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
         "max_levels": 10,
         "maxit": 1,
         "smoother": haznics.SMOOTHER_GS,  # SMOOTHER_ + (JACOBI, GS, SGS, SSOR, ...) on coarse levels w/o schwarz
@@ -153,9 +153,10 @@ def get_hazmath_metric_precond_mono(A, W, bcs, interface_dofs=None):
         "coarse_dof": 100,
         "coarse_solver": 32,  # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
         "coarse_scaling": haznics.OFF,  # (OFF, ON)
-        "aggregation_type": haznics.VMB,  # (VMB, MIS, MWM, HEC)
+        "aggregation_type": haznics.HEC,  # (VMB, MIS, MWM, HEC)
         "strong_coupled": 0.0,  # threshold?
         "max_aggregation": 20,
+        #"amli_degree": 3,
         "Schwarz_levels": 1,  # number for levels where Schwarz smoother is used (1 starts with the finest level)
         "Schwarz_mmsize": 200,  # max block size in Schwarz method
         "Schwarz_maxlvl": 2,  # how many levels from Schwarz seed to take (how large each schwarz block will be)
@@ -191,7 +192,7 @@ def solve_haznics(A, b, W, interface_dofs=None):
 
     if interface_dofs is None:
         interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
-    idofs = haznics.create_ivector(interface_dofs)
+    idofs = None #haznics.create_ivector(interface_dofs)
     print("\n------------------- Data conversion time: ", time.time() - start_time, "\n")
 
     # call solver
