@@ -54,19 +54,19 @@ linear_itsolver_tol		= 1e-8  % tolerance for linear iterative solver
 linear_stop_type		= 2     	% 1 ||r||/||b|| | 2 ||r||_B/||b||_B | % 3 ||r||/||x||
 linear_restart 			= 100		% restart for GMRes
 
-linear_precond_type		= 14		%  0 Null | 1 Diag | 2 AMG
+linear_precond_type		= 16		%  0 Null | 1 Diag | 2 AMG
                                     % 10: direct solve on interface part + AMG on the whole matrix (nonsymmetric multiplicative version)
                                     % 11: direct on interface part + AMG on the whole matrix (additive version)
                                     % 12: Schwarz method on interface part + AMG on the whole matrix (nonsymmetric multiplicative version)
                                     % 13: Schwarz method on interface part + AMG on the whole matrix (additive version)
                                     % 14: Schwarz method on interface part + AMG on the whole matrix (symmetric multiplicative version)
-
+                                    % 16: symmetric multiplicative schwarz on the interface + GS otherwise (for DCSR matrices)
 %----------------------------------------------%
 % parameters for Algebraic Multigrid           %
 %----------------------------------------------%
 
 AMG_type 			= UA	% UA Unsmoothed AMG | SA Smoothed AMG | MUA Metric Unsmoothed AMG | MSA Metric Smoothed AMG
-AMG_cycle_type	    = V    % V V-cycle | W W-cycle | A AMLI-cycle | NA Nonlinear AMLI-cycle | ADD additive cycle
+AMG_cycle_type	    = A    % V V-cycle | W W-cycle | A AMLI-cycle | NA Nonlinear AMLI-cycle | ADD additive cycle
 AMG_levels			= 10	%
 AMG_tol				= 1e-8
 AMG_maxit			= 1
@@ -75,7 +75,7 @@ AMG_smoother			= GS	% JACOBI | GS | SGS | SOR | SSOR | L1DIAG |
                                 % Extra smoothers for block_dCSRmat: JACOBI_GS | JACOBI_SGS |
                                 % Extra smoothers for metric AMG of block_dCSRmat:
 AMG_Schwarz_levels      = 1     % number of levels using Schwarz smoother: METRIC_ADD | METRIC_MUL
-AMG_relaxation			= 1.0   % Relaxation for SOR
+AMG_relaxation			= 1.2   % Relaxation for SOR
 AMG_presmooth_iter		= 1
 AMG_postsmooth_iter		= 1
 
@@ -83,11 +83,11 @@ AMG_coarse_dof			= 100
 AMG_coarse_solver		= 32    % coarsest solver: 0 iterative | 32 UMFPACK
 AMG_coarse_scaling		= OFF	% OFF | ON
 
-AMG_amli_degree          	= 2     % degree of the polynomial used by AMLI cycle
+AMG_amli_degree          	= 3     % degree of the polynomial used by AMLI cycle
 AMG_nl_amli_krylov_type  	= 5	% Krylov method in nonlinear AMLI cycle: 5 GCG |  6 GCR
 
 % aggregation AMG
-AMG_aggregation_type	= 1    % 1 VMB ; 4 HEC
+AMG_aggregation_type	= 4    % 1 VMB ; 4 HEC
 AMG_strong_coupled		= 0.0  % Strong coupled threshold
 AMG_max_aggregation		= 20	% Max size of aggregations
 
