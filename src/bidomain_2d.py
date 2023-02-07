@@ -117,9 +117,10 @@ if __name__ == '__main__':
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
-    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre', 'hazmath', 'hazmath_metric'))
+    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre', 'hazmath', 'metric', 'metric_mono', 'metric_hazmath'))
     
     parser.add_argument('-save', type=int, default=0, help='Save graphics')
+    parser.add_argument('-dump', type=int, default=0, help='Save matrices and vectors to .npy format')
 
     args, _ = parser.parse_known_args()
     
@@ -149,8 +150,10 @@ if __name__ == '__main__':
 
     get_precond = {'diag': utils.get_block_diag_precond,
                    'hypre': utils.get_hypre_monolithic_precond,
-                   'hazmath_metric': utils.get_hazmath_metric_precond,
-                   'hazmath': utils.get_hazmath_amg_precond}[args.precond]
+                   'hazmath': utils.get_hazmath_amg_precond,  # solve w cbc CG + R.T*hazmathAMG*R preconditioner
+                   'metric': utils.get_hazmath_metric_precond,  # solve w cbc CG + R.T*metricAMG*R preconditioner
+                   'metric_mono': utils.get_hazmath_metric_precond_mono,  # solve w cbc CG + metricAMG on Amonolithic
+                   'metric_hazmath': None}[args.precond]  # solve w hazmath CG + hazmath metricAMG
 
     mesh_generator = utils.UnitSquareMeshes()
     next(mesh_generator)
@@ -164,65 +167,48 @@ if __name__ == '__main__':
 
         cell_f, facet_f = entity_fs[2], entity_fs[1]
 
+        # assemble
         AA, bb, W, bcs = get_system(facet_f, data=test_case, pdegree=pdegree, parameters=params)
-        # AA_ = ii_convert(AA)
-        # bb_ = ii_convert(bb)
 
-        cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b-A*x).norm("l2")]}')
-
-        dump = False
-        if dump and W[0].dim()+W[1].dim() > 1e6:
-            print('Write begin')
-            from petsc4py import PETSc
-            import scipy.sparse as sparse
-
-            [[A, Bt],
-             [B, C]] = AA
-            b0, b1 = bb
-            V0perm = PETSc.IS().createGeneral(np.array(vertex_to_dof_map(W[0]), dtype='int32'))
-            V1perm = PETSc.IS().createGeneral(np.array(vertex_to_dof_map(W[1]), dtype='int32'))
-            A_ = as_backend_type(ii_convert(A)).mat().permute(V0perm, V0perm)
-            Bt_ = as_backend_type(ii_convert(Bt)).mat().permute(V0perm, V1perm)
-            B_ = as_backend_type(ii_convert(B)).mat().permute(V1perm, V0perm)
-            C_ = as_backend_type(ii_convert(C)).mat().permute(V1perm, V1perm)
-
-            b0_ = as_backend_type(ii_convert(b0)).vec()
-            b0_.permute(V0perm)
-            b1_ = as_backend_type(ii_convert(b1)).vec()
-            b1_.permute(V1perm)
-
-            csr = B_.getValuesCSR()
-            interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
-
-            def dump(thing, path):
-                if isinstance(thing, PETSc.Vec):
-                    assert np.all(np.isfinite(thing.array))
-                    return np.save(path, thing.array)
-                m = sparse.csr_matrix(thing.getValuesCSR()[::-1]).tocoo()
-                assert np.all(np.isfinite(m.data))
-                return np.save(path, np.c_[m.row, m.col, m.data])
-
-
-            dump(A_, 'A.npy')
-            dump(Bt_, 'Bt.npy')
-            dump(B_, 'B.npy')
-            dump(C_, 'C.npy')
-            dump(b0_, 'b0.npy')
-            dump(b1_, 'b1.npy')
-            assert np.all(np.isfinite(interface_dofs.data))
-            np.save('idofs.npy', interface_dofs)
-            print('Write done')
+        # Write system to .npy files
+        if args.dump and W[0].dim()+W[1].dim() > 1e6:
+            utils.dump_system(AA, bb, W)
             exit(0)
 
+        # mono or block
+        if args.precond in {"metric_mono", "metric_hazmath"}:
+            AA_ = ii_convert(AA)
+            bb_ = ii_convert(bb)
+            cbk = lambda k, x, r, b=bb_, A=AA_: print(f'\titer{k} -> {[(b - A * x).norm("l2")]}')
+        else:
+            cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b-A*x).norm("l2")]}')
+
         then = time.time()
-        # For simplicity only use block diagonal preconditioner
-        if args.precond == "hazmath":
-            # niters, wh, ksp_dt = utils.solve_haznics2(AA, bb, W, M, C)
-            niters, wh, ksp_dt = utils.solve_haznics(AA, bb, W)
+        if args.precond == "metric_hazmath":
+            # this one solves everything in hazmath
+            niters, wh, ksp_dt = utils.solve_haznics(AA_, bb_, W)
             r_norm = 0
             cond = -1
+        elif args.precond == "metric_mono":
+            # this one solves the monolithic system w cbc.block CG + metricAMG
+            interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+            BB = get_precond(AA_, W, bcs, interface_dofs)
+
+            AAinv = ConjGrad(AA_, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)
+            xx = AAinv * bb_
+            ksp_dt = time.time() - then
+
+            wh = ii_Function(W)
+            wh[0].vector().set_local(xx[:W[0].dim()])
+            wh[1].vector().set_local(xx[W[0].dim():])
+
+            niters = len(AAinv.residuals)
+            r_norm = AAinv.residuals[-1]
+            eigenvalues = AAinv.eigenvalue_estimates()
+            cond = max(eigenvalues) / min(eigenvalues)
         else:
-            if args.precond == "hazmath_metric":
+            # these solve in block fashion
+            if args.precond == "metric":
                 interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
                 BB = get_precond(AA, W, bcs, interface_dofs)
             else:
@@ -234,8 +220,6 @@ if __name__ == '__main__':
             wh = ii_Function(W)
             for i, xxi in enumerate(xx):
                 wh[i].vector().axpy(1, xxi)
-            # wh[0].vector().set_local(xx[:W[0].dim()])
-            # wh[1].vector().set_local(xx[W[0].dim():])
 
             niters = len(AAinv.residuals)
             r_norm = AAinv.residuals[-1]

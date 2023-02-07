@@ -64,18 +64,13 @@ def get_hypre_monolithic_precond(A, W, bcs):
 def get_hazmath_amg_precond(A, W, bcs):
     '''Invert block operator via hypre'''
     import haznics
-    from block.algebraic.hazmath import AMG
+    from block.algebraic.hazmath import AMG as AMGhaz
 
     M = xii.ii_convert(A)
     R = xii.ReductionOperator([len(W)], W)
 
     parameters = {
         "prectype": 2,  # which metric precond
-        # 10: direct (LU) on interface part + AMG on the whole matrix (nonsymmetric multiplicative)
-        # 11: direct (LU) on interface part + AMG on the whole matrix (additive)
-        # 12: Schwarz method on interface part + AMG on the whole matrix (nonsymmetric multiplicative)
-        # 13: Schwarz method on interface part + AMG on the whole matrix (additive)
-        # 14: Schwarz method on interface part + AMG on the whole matrix (symmetric multiplicative)
         "AMG_type": haznics.UA_AMG,  # (UA, SA) + _AMG
         "cycle_type": haznics.V_CYCLE,  # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
         "max_levels": 10,
@@ -98,7 +93,7 @@ def get_hazmath_amg_precond(A, W, bcs):
         "print_level": 10,
     }
 
-    Minv = AMG(M, parameters=parameters)
+    Minv = AMGhaz(M, parameters=parameters)
     Ainv = R.T * Minv * R
     return Ainv
 
@@ -142,51 +137,66 @@ def get_hazmath_metric_precond(A, W, bcs, interface_dofs=None):
     return R.T * Minv * R
 
 
+def get_hazmath_metric_precond_mono(A, W, bcs, interface_dofs=None):
+    '''Invert block operator via hazmath amg'''
+    import haznics
+
+    parameters = {
+        "AMG_type": haznics.SA_AMG,  # (UA, SA) + _AMG
+        "cycle_type": haznics.V_CYCLE,  # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
+        "max_levels": 10,
+        "maxit": 1,
+        "smoother": haznics.SMOOTHER_GS,  # SMOOTHER_ + (JACOBI, GS, SGS, SSOR, ...) on coarse levels w/o schwarz
+        "relaxation": 1.0,
+        "presmooth_iter": 1,
+        "postsmooth_iter": 1,
+        "coarse_dof": 100,
+        "coarse_solver": 32,  # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
+        "coarse_scaling": haznics.OFF,  # (OFF, ON)
+        "aggregation_type": haznics.VMB,  # (VMB, MIS, MWM, HEC)
+        "strong_coupled": 0.0,  # threshold?
+        "max_aggregation": 20,
+        "Schwarz_levels": 1,  # number for levels where Schwarz smoother is used (1 starts with the finest level)
+        "Schwarz_mmsize": 200,  # max block size in Schwarz method
+        "Schwarz_maxlvl": 2,  # how many levels from Schwarz seed to take (how large each schwarz block will be)
+        "Schwarz_type": haznics.SCHWARZ_SYMMETRIC,  # (SCHWARZ_FORWARD, SCHWARZ_BACKWARD, SCHWARZ_SYMMETRIC)
+        "Schwarz_blksolver": 32,  # type of Schwarz block solver, 0 - iterative, 32 - UMFPACK
+        "print_level": 10, # 0 - print none, 10 - print all
+    }
+
+    # NB: if interface_dofs \not= all dofs, then the interface_dofs has the Schwarz and the rest the GS smoother
+    if interface_dofs is not None:
+        Minv = metricAMG(A, W, idofs=interface_dofs, parameters=parameters)
+    else:
+        Minv = metricAMG(A, W, parameters=parameters)
+
+    return Minv
 # ---
 
 
-def solve_haznics(A, b, W, idofs=None):
-    from block.algebraic.hazmath import block_mat_to_block_dCSRmat
+def solve_haznics(A, b, W, interface_dofs=None):
+    from block.algebraic.hazmath import PETSc_to_dCSRmat
     import haznics
-    # import numpy as np
     import time
-
-    def block_to_haz(AA):
-        # first make sure the whole matrix is of block_mat type
-        if hasattr(AA, 'block_collapse'):
-            AA = AA.block_collapse()
-
-        # then make sure each block is a petsc matrix
-        brow, bcol = AA.blocks.shape
-        for i in range(brow):
-            for j in range(bcol):
-                AA[i][j] = xii.ii_collapse(AA[i][j])
-
-        AAhaz = block_mat_to_block_dCSRmat(AA)
-
-        return AAhaz
 
     dimW = sum([VV.dim() for VV in W])
     start_time = time.time()
     # convert vectors
-    bb = xii.ii_convert(b)
-    b_np = bb[:]
+    b_np = b[:]
     bhaz = haznics.create_dvector(b_np)
     xhaz = haznics.dvec_create_p(dimW)
 
     # convert matrices
-    Ahaz = block_to_haz(A)
+    Ahaz = PETSc_to_dCSRmat(A)
 
-    # csr = A[1][0].mat().getValuesCSR()
-    # interface_dofs = np.unique(csr[1])  # unique columns from A[1][0].indices (or A10->JA)
-    # interface_dofs = np.append(interface_dofs, np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32))
-    # idofs = haznics.create_ivector(interface_dofs)
-
+    if interface_dofs is None:
+        interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+    idofs = haznics.create_ivector(interface_dofs)
     print("\n------------------- Data conversion time: ", time.time() - start_time, "\n")
 
     # call solver
     solve_start = time.time()
-    niters = haznics.fenics_metric_amg_solver_minimal(Ahaz, bhaz, xhaz, idofs)
+    niters = haznics.fenics_metric_amg_solver_dcsr(Ahaz, bhaz, xhaz, idofs)
     solve_end = time.time() - solve_start
 
     xx = xhaz.to_ndarray()
@@ -196,59 +206,6 @@ def solve_haznics(A, b, W, idofs=None):
 
     return niters, wh, solve_end
 
-
-"""
-def solve_haznics2(A, b, W, M, C):
-    from block.algebraic.hazmath import block_mat_to_block_dCSRmat
-    import haznics
-    import time
-    def block_to_haz(AA):
-        # first make sure the whole matrix is of block_mat type
-        if hasattr(AA, 'block_collapse'):
-            AA = AA.block_collapse()
-
-        # then make sure each block is a petsc matrix
-        brow, bcol = AA.blocks.shape
-        for i in range(brow):
-            for j in range(bcol):
-                AA[i][j] = xii.ii_collapse(AA[i][j])
-
-        AAhaz = block_mat_to_block_dCSRmat(AA)
-
-        return AAhaz
-
-    dimW = sum([VV.dim() for VV in W])
-    start_time = time.time()
-    # convert vectors
-    bb = xii.ii_convert(b)
-    b_np = bb[:]
-    bhaz = haznics.create_dvector(b_np)
-    xhaz = haznics.dvec_create_p(dimW)
-
-    # convert matrices
-    Ahaz = block_to_haz(A)
-    Mhaz = block_to_haz(M)
-    ADhaz = haznics.block_dCSRmat()
-    ADhaz.init(2, 2)
-    haznics.bdcsr_add(Ahaz, 1.0, Mhaz, -1.0, ADhaz)
-    # coupling incidence matrix C
-    csr = C.getValuesCSR()
-    Chaz = haznics.create_matrix(csr[2], csr[1], csr[0], C.size[1])
-    # Chaz = haznics.dCSRmat()
-    print("\n------------------- Data conversion time: ", time.time() - start_time, "\n")
-
-    # call solver
-    solve_start = time.time()
-    niters = haznics.fenics_metric_amg_solver(Ahaz, bhaz, xhaz, ADhaz, Mhaz, Chaz)
-    solve_end = time.time() - solve_start
-
-    xx = xhaz.to_ndarray()
-    wh = xii.ii_Function(W)
-    wh[0].vector().set_local(xx[:W[0].dim()])
-    wh[1].vector().set_local(xx[W[0].dim():])
-
-    return niters, wh, solve_end
-"""
 
 GREEN = '\033[1;37;32m%s\033[0m'
 RED = '\033[1;37;31m%s\033[0m'
@@ -435,3 +392,45 @@ def get_interface_dofs(V, interface):
     dofs = list(df.DirichletBC(V, null, facet_f, 1).get_boundary_values().keys())
 
     return dofs
+
+
+def dump_system(AA, bb, W):
+    print('Write begin')
+    from petsc4py import PETSc
+    import scipy.sparse as sparse
+
+    def dump(thing, path):
+        if isinstance(thing, PETSc.Vec):
+            assert np.all(np.isfinite(thing.array))
+            return np.save(path, thing.array)
+        m = sparse.csr_matrix(thing.getValuesCSR()[::-1]).tocoo()
+        assert np.all(np.isfinite(m.data))
+        return np.save(path, np.c_[m.row, m.col, m.data])
+
+    [[A, Bt],
+     [B, C]] = AA
+    b0, b1 = bb
+    V0perm = PETSc.IS().createGeneral(np.array(df.vertex_to_dof_map(W[0]), dtype='int32'))
+    V1perm = PETSc.IS().createGeneral(np.array(df.vertex_to_dof_map(W[1]), dtype='int32'))
+    A_ = df.as_backend_type(xii.ii_convert(A)).mat().permute(V0perm, V0perm)
+    Bt_ = df.as_backend_type(xii.ii_convert(Bt)).mat().permute(V0perm, V1perm)
+    B_ = df.as_backend_type(xii.ii_convert(B)).mat().permute(V1perm, V0perm)
+    C_ = df.as_backend_type(xii.ii_convert(C)).mat().permute(V1perm, V1perm)
+
+    b0_ = df.as_backend_type(xii.ii_convert(b0)).vec()
+    b0_.permute(V0perm)
+    b1_ = df.as_backend_type(xii.ii_convert(b1)).vec()
+    b1_.permute(V1perm)
+
+    csr = B_.getValuesCSR()
+    interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+
+    dump(A_, 'A.npy')
+    dump(Bt_, 'Bt.npy')
+    dump(B_, 'B.npy')
+    dump(C_, 'C.npy')
+    dump(b0_, 'b0.npy')
+    dump(b1_, 'b1.npy')
+    assert np.all(np.isfinite(interface_dofs.data))
+    np.save('idofs.npy', interface_dofs)
+    print('Write done')
