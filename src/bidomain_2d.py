@@ -168,6 +168,20 @@ if __name__ == '__main__':
         # AA_ = ii_convert(AA)
         # bb_ = ii_convert(bb)
 
+        R = ReductionOperator([2], W)
+        error = 0.
+        # Check action
+        for _ in range(20):
+            xx = AA.create_vec()
+            xx.randomize()
+
+            yy0 = AA*xx
+
+            A_ = ii_convert(AA)
+            yy = R.T*A_*R*xx
+            error = max(error, max(bj.norm('linf') for bj in (yy0 - yy)))
+        assert error < 1E-14
+
         cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b-A*x).norm("l2")]}')
 
         dump = False
