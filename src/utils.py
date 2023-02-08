@@ -102,7 +102,7 @@ def get_hazmath_metric_precond(A, W, bcs, interface_dofs=None):
     '''Invert block operator via hazmath amg'''
     import haznics
 
-    AA = xii.ii_convert(A)
+    #AA = xii.ii_convert(A)
     R = xii.ReductionOperator([len(W)], W)
 
     parameters = {
@@ -130,9 +130,9 @@ def get_hazmath_metric_precond(A, W, bcs, interface_dofs=None):
 
     # NB: if interface_dofs \not= all dofs, then the interface_dofs has the Schwarz and the rest the GS smoother
     if interface_dofs is not None:
-        Minv = metricAMG(AA, W, idofs=interface_dofs, parameters=parameters)
+        Minv = metricAMG(A, W, idofs=interface_dofs, parameters=parameters)
     else:
-        Minv = metricAMG(AA, W, parameters=parameters)
+        Minv = metricAMG(A, W, parameters=parameters)
 
     return R.T * Minv * R
 

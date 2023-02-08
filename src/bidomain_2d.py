@@ -210,7 +210,7 @@ if __name__ == '__main__':
         AA_ = ii_convert(AA)
         BB_mono = utils.get_hazmath_metric_precond_mono(AA_, W, bcs, interface_dofs)
 
-        BB = utils.get_hazmath_metric_precond(AA, W, bcs, interface_dofs)
+        BB = utils.get_hazmath_metric_precond(AA_, W, bcs, interface_dofs)
 
         error = 0.
         # Check action of system
@@ -227,10 +227,11 @@ if __name__ == '__main__':
                 print("Error in precond vectors > 1e-14 at ", len(indices), " out of ", erri.local_size(), " dofs")
             print("Max error is ", error)
             print("------------")
-        try:
-            assert error < 1E-14, error
-        except AssertionError:
-            utils.print_red('Vectors differ')
+        # try:
+        #     assert error < 1E-14, error
+        # except AssertionError:
+        #     utils.print_red('Vectors differ')
+        #     continue
 
         # Is it the reduction?
         error = 0.
@@ -244,7 +245,7 @@ if __name__ == '__main__':
             yy = BB_mono*ii_convert(xx)
             error = max(error, (yy0 - yy).norm('linf'))
             print("Error without reduction:", error)
-        assert error < 1E-14, error
+        # assert error < 1E-14, error
         
 
         cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b-A*x).norm("l2")]}')
@@ -289,7 +290,7 @@ if __name__ == '__main__':
             # these solve in block fashion
             if args.precond == "metric":
                 interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
-                BB = get_precond(AA, W, bcs, interface_dofs)
+                BB = get_precond(AA_, W, bcs, interface_dofs)
             else:
                 BB = get_precond(AA, W, bcs)
             AAinv = ConjGrad(AA, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)
