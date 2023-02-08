@@ -160,6 +160,53 @@ if __name__ == '__main__':
     AA, bb, W, bcs = get_system(mesh3d, mesh1d, radii,
                                 data=test_case, pdegree=pdegree, parameters=params)
 
+    dump = False
+    # ----
+    
+    if dump:
+        print('Write begin')
+        from petsc4py import PETSc
+        import scipy.sparse as sparse
+
+        [[A, Bt],
+         [B, C]] = AA
+
+        b0, b1 = bb
+
+        V0perm = PETSc.IS().createGeneral(np.array(vertex_to_dof_map(W[0]), dtype='int32'))
+        V1perm = PETSc.IS().createGeneral(np.array(vertex_to_dof_map(W[1]), dtype='int32'))     
+
+        A_ = as_backend_type(ii_convert(A)).mat().permute(V0perm, V0perm)
+        Bt_ = as_backend_type(ii_convert(Bt)).mat().permute(V0perm, V1perm)
+        B_ = as_backend_type(ii_convert(B)).mat().permute(V1perm, V0perm)
+        C_ = as_backend_type(ii_convert(C)).mat().permute(V1perm, V1perm)
+        
+        b0_ = as_backend_type(ii_convert(b0)).vec()
+        b0_.permute(V0perm)
+        b1_ = as_backend_type(ii_convert(b1)).vec()
+        b1_.permute(V1perm)     
+
+        def dump(thing, path):
+            if isinstance(thing, PETSc.Vec):
+                assert np.all(np.isfinite(thing.array))
+                return np.save(path, thing.array)
+
+            m = sparse.csr_matrix(thing.getValuesCSR()[::-1]).tocoo()
+            assert np.all(np.isfinite(m.data))
+            return np.save(path, np.c_[m.row, m.col, m.data])
+
+        dump(A_, 'A.npy') 
+        dump(Bt_, 'Bt.npy') 
+        dump(B_, 'B.npy') 
+        dump(C_, 'C.npy') 
+
+        dump(b0_, 'b0.npy') 
+        dump(b1_, 'b1.npy')
+        print('Write done')
+
+        exit()
+    # ----
+
     cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b[i]-xi).norm("l2") for i, xi in enumerate(A*x)]}')
 
     then = time.time()

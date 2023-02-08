@@ -169,7 +169,7 @@ if __name__ == '__main__':
     not os.path.exists(result_dir) and os.makedirs(result_dir)
 
     def get_path(what, ext):
-        template_path = f'symgrad{args.symgrad}_precond{args.precond}_kappa1{args.kappa1}_kappa2{args.kappa2}_gamma{args.gamma}_pdegree{args.pdegree}.{ext}'
+        template_path = f'{what}_symgrad{args.symgrad}_precond{args.precond}_kappa1{args.kappa1}_kappa2{args.kappa2}_gamma{args.gamma}_pdegree{args.pdegree}.{ext}'
         return os.path.join(result_dir, template_path)
 
     Params = namedtuple('Params', ('kappa1', 'kappa2', 'gamma'))
