@@ -175,7 +175,7 @@ if __name__ == '__main__':
         # Check action of system
         for _ in range(20):
             xx = AA.create_vec()
-            # this is only cos of petsc error on my comp (which only happens at first allocation of xx)
+            # this is only cos of petsc error on my comp
             xx[0] = Vector(MPI.comm_self, xx[0].local_size())
             xx[1] = Vector(MPI.comm_self, xx[1].local_size())
 
@@ -187,6 +187,22 @@ if __name__ == '__main__':
             yy = R.T*A_*R*xx
             error = max(error, max(bj.norm('linf') for bj in (yy0 - yy)))
             print("Error system matrix:", error)
+        assert error < 1E-14
+
+        # Check action of system
+        for _ in range(20):
+            xx = AA.create_vec()
+            # this is only cos of petsc error on my comp
+            xx[0] = Vector(MPI.comm_self, xx[0].local_size())
+            xx[1] = Vector(MPI.comm_self, xx[1].local_size())
+
+            xx.randomize()
+
+            yy0 = xx
+
+            yy = R.T * R * xx
+            error = max(error, max(bj.norm('linf') for bj in (yy0 - yy)))
+            print("Error reduction:", error)
         assert error < 1E-14
 
         # Check action of preconditioners
