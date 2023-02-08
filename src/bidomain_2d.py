@@ -227,7 +227,7 @@ if __name__ == '__main__':
 
             yy = BB_mono*ii_convert(xx)
             error = max(error, (yy0 - yy).norm('linf'))
-            print("Error reduction:", error)
+            print("Error without reduction:", error)
         assert error < 1E-14, error
         
 
