@@ -175,6 +175,10 @@ if __name__ == '__main__':
         # Check action of system
         for _ in range(20):
             xx = AA.create_vec()
+            # this is only cos of petsc error on my comp (which only happens at first allocation of xx)
+            xx[0] = Vector(MPI.comm_self, xx[0].local_size())
+            xx[1] = Vector(MPI.comm_self, xx[1].local_size())
+
             xx.randomize()
 
             yy0 = AA*xx
@@ -182,6 +186,7 @@ if __name__ == '__main__':
             A_ = ii_convert(AA)
             yy = R.T*A_*R*xx
             error = max(error, max(bj.norm('linf') for bj in (yy0 - yy)))
+            print("Error system matrix:", error)
         assert error < 1E-14
 
         # Check action of preconditioners
@@ -201,6 +206,11 @@ if __name__ == '__main__':
 
             yy = R.T*BB_mono*R*xx
             error = max(error, max(bj.norm('linf') for bj in (yy0 - yy)))
+            for erri in yy0 - yy:
+                indices = np.argwhere(erri[:] > 1e-14)
+                print("Error in precond vectors > 1e-14 at ", len(indices), " out of ", erri.local_size(), " dofs")
+            print("Max error is ", error)
+            print("------------")
         try:
             assert error < 1E-14, error
         except AssertionError:
@@ -217,6 +227,7 @@ if __name__ == '__main__':
 
             yy = BB_mono*ii_convert(xx)
             error = max(error, (yy0 - yy).norm('linf'))
+            print("Error reduction:", error)
         assert error < 1E-14, error
         
 
