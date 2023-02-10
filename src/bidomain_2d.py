@@ -233,20 +233,26 @@ if __name__ == '__main__':
         #     utils.print_red('Vectors differ')
         #     continue
 
+
+        # BB.chain[1] = BB_mono
+        BBB = BB.chain[1]        # R.T * (1) * R
+        # Make a new monolithic one ...
+        CC_mono = utils.get_hazmath_metric_precond_mono(AA_, W, bcs, interface_dofs)
+        BBB = CC_mono  # ... and compare with the previous one
         # Is it the reduction?
         error = 0.
         # Check action of system
         for _ in range(20):
             xx = BB.create_vec()
             xx.randomize()
-
-            yy0 = ii_convert(BB*xx)
+            # Only look at the middle bits
+            yy0 = BBB*ii_convert(xx)
 
             yy = BB_mono*ii_convert(xx)
             error = max(error, (yy0 - yy).norm('linf'))
             print("Error without reduction:", error)
-        # assert error < 1E-14, error
-        
+        assert error < 1E-14, error
+        exit()
 
         cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b-A*x).norm("l2")]}')
 
