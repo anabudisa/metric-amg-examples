@@ -170,6 +170,92 @@ if __name__ == '__main__':
         # assemble
         AA, bb, W, bcs = get_system(facet_f, data=test_case, pdegree=pdegree, parameters=params)
 
+        R = ReductionOperator([2], W)
+        error = 0.
+        # Check action of system
+        for _ in range(20):
+            xx = AA.create_vec()
+            # this is only cos of petsc error on my comp
+            xx[0] = Vector(MPI.comm_self, xx[0].local_size())
+            xx[1] = Vector(MPI.comm_self, xx[1].local_size())
+
+            xx.randomize()
+
+            yy0 = AA*xx
+
+            A_ = ii_convert(AA)
+            yy = R.T*A_*R*xx
+            error = max(error, max(bj.norm('linf') for bj in (yy0 - yy)))
+            print("Error system matrix:", error)
+        assert error < 1E-14
+
+        # Check action of system
+        for _ in range(20):
+            xx = AA.create_vec()
+            # this is only cos of petsc error on my comp
+            xx[0] = Vector(MPI.comm_self, xx[0].local_size())
+            xx[1] = Vector(MPI.comm_self, xx[1].local_size())
+
+            xx.randomize()
+
+            yy0 = xx
+
+            yy = R.T * R * xx
+            error = max(error, max(bj.norm('linf') for bj in (yy0 - yy)))
+            print("Error reduction:", error)
+        assert error < 1E-14
+
+        # Check action of preconditioners
+        interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+        AA_ = ii_convert(AA)
+        BB_mono = utils.get_hazmath_metric_precond_mono(AA_, W, bcs, interface_dofs)
+
+        BB = utils.get_hazmath_metric_precond(AA_, W, bcs, interface_dofs)
+
+        error = 0.
+        # Check action of system
+        for _ in range(20):
+            xx = BB.create_vec()
+            xx.randomize()
+
+            yy0 = BB*xx
+
+            yy = R.T*BB_mono*R*xx
+            error = max(error, max(bj.norm('linf') for bj in (yy0 - yy)))
+            for erri in yy0 - yy:
+                indices = np.argwhere(erri[:] > 1e-14)
+                print("Error in precond vectors > 1e-14 at ", len(indices), " out of ", erri.local_size(), " dofs")
+            print("Max error is ", error)
+            print("------------")
+        # try:
+        #     assert error < 1E-14, error
+        # except AssertionError:
+        #     utils.print_red('Vectors differ')
+        #     continue
+
+
+        # BB.chain[1] = BB_mono
+        BBB = BB.chain[1]        # R.T * (1) * R
+        # Make a new monolithic one ...
+        CC_mono = utils.get_hazmath_metric_precond_mono(AA_, W, bcs, interface_dofs)
+        BBB = CC_mono  # ... and compare with the previous one
+        # Is it the reduction?
+        error = 0.
+        # Check action of system
+        for _ in range(20):
+            xx = BB.create_vec()
+            xx.randomize()
+            # Only look at the middle bits
+            yy0 = BBB*ii_convert(xx)
+
+            yy = BB_mono*ii_convert(xx)
+            error = max(error, (yy0 - yy).norm('linf'))
+            print("Error without reduction:", error)
+        assert error < 1E-14, error
+        exit()
+
+        cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b-A*x).norm("l2")]}')
+
         # Write system to .npy files
         if args.dump and W[0].dim()+W[1].dim() > 1e6:
             utils.dump_system(AA, bb, W)
@@ -210,7 +296,7 @@ if __name__ == '__main__':
             # these solve in block fashion
             if args.precond == "metric":
                 interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
-                BB = get_precond(AA, W, bcs, interface_dofs)
+                BB = get_precond(AA_, W, bcs, interface_dofs)
             else:
                 BB = get_precond(AA, W, bcs)
             AAinv = ConjGrad(AA, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)

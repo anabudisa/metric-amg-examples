@@ -102,37 +102,10 @@ def get_hazmath_metric_precond(A, W, bcs, interface_dofs=None):
     '''Invert block operator via hazmath amg'''
     import haznics
 
-    AA = xii.ii_convert(A)
+    #AA = xii.ii_convert(A)
     R = xii.ReductionOperator([len(W)], W)
 
-    parameters = {
-        "AMG_type": haznics.SA_AMG,  # (UA, SA) + _AMG
-        "cycle_type": haznics.V_CYCLE,  # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
-        "max_levels": 10,
-        "maxit": 1,
-        "smoother": haznics.SMOOTHER_GS,  # SMOOTHER_ + (JACOBI, GS, SGS, SSOR, ...) on coarse levels w/o schwarz
-        "relaxation": 1.0,
-        "presmooth_iter": 1,
-        "postsmooth_iter": 1,
-        "coarse_dof": 100,
-        "coarse_solver": 32,  # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
-        "coarse_scaling": haznics.OFF,  # (OFF, ON)
-        "aggregation_type": haznics.HEC,  # (VMB, MIS, MWM, HEC)
-        "strong_coupled": 0.0,  # threshold?
-        "max_aggregation": 20,
-        "Schwarz_levels": 1,  # number for levels where Schwarz smoother is used (1 starts with the finest level)
-        "Schwarz_mmsize": 200,  # max block size in Schwarz method
-        "Schwarz_maxlvl": 2,  # how many levels from Schwarz seed to take (how large each schwarz block will be)
-        "Schwarz_type": haznics.SCHWARZ_SYMMETRIC,  # (SCHWARZ_FORWARD, SCHWARZ_BACKWARD, SCHWARZ_SYMMETRIC)
-        "Schwarz_blksolver": 32,  # type of Schwarz block solver, 0 - iterative, 32 - UMFPACK
-        "print_level": 10, # 0 - print none, 10 - print all
-    }
-
-    # NB: if interface_dofs \not= all dofs, then the interface_dofs has the Schwarz and the rest the GS smoother
-    if interface_dofs is not None:
-        Minv = metricAMG(AA, W, idofs=interface_dofs, parameters=parameters)
-    else:
-        Minv = metricAMG(AA, W, parameters=parameters)
+    Minv = get_hazmath_metric_precond_mono(A, W, bcs, interface_dofs=interface_dofs)
 
     return R.T * Minv * R
 
@@ -162,7 +135,7 @@ def get_hazmath_metric_precond_mono(A, W, bcs, interface_dofs=None):
         "Schwarz_maxlvl": 2,  # how many levels from Schwarz seed to take (how large each schwarz block will be)
         "Schwarz_type": haznics.SCHWARZ_SYMMETRIC,  # (SCHWARZ_FORWARD, SCHWARZ_BACKWARD, SCHWARZ_SYMMETRIC)
         "Schwarz_blksolver": 32,  # type of Schwarz block solver, 0 - iterative, 32 - UMFPACK
-        "print_level": 10, # 0 - print none, 10 - print all
+        "print_level": 0, # 0 - print none, 10 - print all
     }
 
     # NB: if interface_dofs \not= all dofs, then the interface_dofs has the Schwarz and the rest the GS smoother
@@ -172,6 +145,7 @@ def get_hazmath_metric_precond_mono(A, W, bcs, interface_dofs=None):
         Minv = metricAMG(A, W, parameters=parameters)
 
     return Minv
+    # return A
 # ---
 
 
