@@ -28,8 +28,8 @@ def setup_mms(params):
     u1 = x + y + 2*z
     u2 = x - y + z
 
-    sigma1 = kappa1*grad(u1) + kappa1*u1
-    sigma2 = kappa2*grad(u2) + kappa2*u2
+    sigma1 = kappa1*grad(u1)
+    sigma2 = kappa2*grad(u2)
 
     f1 = -div(sigma1) 
     f2 = -div(sigma2) 
@@ -116,9 +116,11 @@ if __name__ == '__main__':
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
-    parser.add_argument('-precond', type=str, default='hazmath', choices=('diag', 'hypre', 'hazmath'))
-    
-    parser.add_argument('-save', type=int, default=0, choices=(0, 1), help='Save graphics')    
+    parser.add_argument('-precond', type=str, default='diag',
+                        choices=('diag', 'hypre', 'hazmath', 'metric', 'metric_mono', 'metric_hazmath'))
+
+    parser.add_argument('-save', type=int, default=0, help='Save graphics')
+    parser.add_argument('-dump', type=int, default=0, help='Save matrices and vectors to .npy format')
 
     args, _ = parser.parse_known_args()
     
@@ -145,8 +147,10 @@ if __name__ == '__main__':
 
     get_precond = {'diag': utils.get_block_diag_precond,
                    'hypre': utils.get_hypre_monolithic_precond,
-                   'hazmath': utils.get_hazmath_metric_precond}[args.precond]
-
+                   'hazmath': utils.get_hazmath_amg_precond,  # solve w cbc CG + R.T*hazmathAMG*R preconditioner
+                   'metric': utils.get_hazmath_metric_precond,  # solve w cbc CG + R.T*metricAMG*R preconditioner
+                   'metric_mono': utils.get_hazmath_metric_precond_mono,  # solve w cbc CG + metricAMG on Amonolithic
+                   'metric_hazmath': None}[args.precond]  # solve w hazmath CG + hazmath metricAMG
     # Meshes
     mesh3d = Mesh()
     with HDF5File(mesh3d.mpi_comm(), './data/brava/darcy_mesh.h5', 'r') as h5:
@@ -168,30 +172,66 @@ if __name__ == '__main__':
     AA, bb, W, bcs = get_system(mesh3d, mesh1d, radii,
                                 data=test_case, pdegree=pdegree, parameters=params)
 
-    cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b[i]-xi).norm("l2") for i, xi in enumerate(A*x)]}')
+    # cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b[i]-xi).norm("l2") for i, xi in enumerate(A*x)]}')
+
+    # Write system to .npy files
+    if args.dump and W[0].dim() + W[1].dim() > 1e6:
+        utils.dump_system(AA, bb, W)
+        exit(0)
+
+    # mono or block
+    if args.precond in {"metric_mono", "metric_hazmath"}:
+        AA_ = ii_convert(AA)
+        bb_ = ii_convert(bb)
+        cbk = lambda k, x, r, b=bb_, A=AA_: print(f'\titer{k} -> {[(b - A * x).norm("l2")]}')
+    else:
+        cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b - A * x).norm("l2")]}')
 
     then = time.time()
     # For simplicity only use block diagonal preconditioner
-    if args.precond == "hazmath":
-        # niters, wh, ksp_dt = utils.solve_haznics2(AA, bb, W, M, C)
-        niters, wh, ksp_dt = utils.solve_haznics(AA, bb, W)
+    then = time.time()
+    if args.precond == "metric_hazmath":
+        # this one solves everything in hazmath
+        niters, wh, ksp_dt = utils.solve_haznics(AA_, bb_, W)
         r_norm = 0
         cond = -1
-    else:
-        BB = get_precond(AA, W, bcs)
+    elif args.precond == "metric_mono":
+        # this one solves the monolithic system w cbc.block CG + metricAMG
+        interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+        BB = get_precond(AA_, W, bcs, interface_dofs)
 
-        AAinv = ConjGrad(AA, precond=BB, tolerance=1E-10, show=4, maxiter=500, callback=cbk)
+        AAinv = ConjGrad(AA_, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)
+        xx = AAinv * bb_
+        ksp_dt = time.time() - then
+
+        wh = ii_Function(W)
+        wh[0].vector().set_local(xx[:W[0].dim()])
+        wh[1].vector().set_local(xx[W[0].dim():])
+
+        niters = len(AAinv.residuals)
+        r_norm = AAinv.residuals[-1]
+        eigenvalues = AAinv.eigenvalue_estimates()
+        cond = max(eigenvalues) / min(eigenvalues)
+    else:
+        # these solve in block fashion
+        if args.precond == "metric":
+            interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+            BB = get_precond(AA, W, bcs, interface_dofs)
+        else:
+            BB = get_precond(AA, W, bcs)
+        AAinv = ConjGrad(AA, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)
         xx = AAinv * bb
         ksp_dt = time.time() - then
 
         wh = ii_Function(W)
         for i, xxi in enumerate(xx):
             wh[i].vector().axpy(1, xxi)
+
         niters = len(AAinv.residuals)
         r_norm = AAinv.residuals[-1]
 
         eigenvalues = AAinv.eigenvalue_estimates()
-        cond = max(eigenvalues)/min(eigenvalues)
+        cond = max(eigenvalues) / min(eigenvalues)
 
     h = W[0].mesh().hmin()
     ndofs = sum(Wi.dim() for Wi in W)
