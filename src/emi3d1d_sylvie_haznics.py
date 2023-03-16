@@ -261,7 +261,7 @@ if __name__ == '__main__':
 
     # Base print
     with open(get_path('iters', 'txt'), 'w') as out:
-        out.write('# %s\n' % ' '.join(headers_ksp))                
+        out.write('%s\n' % ' '.join(headers_ksp))
 
     # ---
     ksp_row = (ndofs, niters, cond, ksp_dt, r_norm, h) 
