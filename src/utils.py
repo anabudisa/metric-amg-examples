@@ -45,7 +45,7 @@ def get_hypre_monolithic_precond(A, W, bcs):
 
         #'pc_hypre_boomeramg_measure_type': 'local',  # (choose one of, local global (None,
         #'pc_hypre_boomeramg_coarsen_type': 'Falgout',  # (choose one of, CLJP Ruge-Stueben  modifiedRuge-Stueben   Falgout  PMIS  HMIS (None,
-        #'pc_hypre_boomeramg_interp_type': 'classical',  # (choose one of, classical   direct multipass multipass-wts ext+i ext+i-cc standard standard-wts   FF FF1 (None,
+        'pc_hypre_boomeramg_interp_type': 'multipass',  # (choose one of, classical   direct multipass multipass-wts ext+i ext+i-cc standard standard-wts   FF FF1 (None,
         
         # 'pc_hypre_boomeramg_print_statistics': None,
         # 'pc_hypre_boomeramg_print_debug': None,
