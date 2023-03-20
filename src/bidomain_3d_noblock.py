@@ -25,7 +25,7 @@ if __name__ == '__main__':
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
-    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre'))
+    parser.add_argument('-precond', type=str, default='hypre', choices=('pyamg', 'hypre'))
     
     parser.add_argument('-save', type=int, default=0, help='Save graphics')    
 
@@ -86,14 +86,33 @@ if __name__ == '__main__':
         # OptDB.setValue('options_view', None)        
         OptDB.setValue('ksp_monitor_singular_value', None)
 
-        OptDB.setValue('pc_hypre_boomeramg_cycle_type', 'V')
-        OptDB.setValue('pc_hypre_boomeramg_max_iter', 1)
-        OptDB.setValue('pc_hypre_boomeramg_smooth_type', 'Schwarz-smoothers')
-        OptDB.setValue('pc_hypre_boomeramg_interp_type', 'multipass')
-        # OptDB.setValue('pc_hypre_boomeramg_nodal_coarsen', 0)  # Use a nodal based coarsening 1-6 (HYPRE_BoomerAMGSetNodal,
-        # OptDB.setValue('pc_hypre_boomeramg_vec_interp_variant', 0)  # Variant of algorithm 1-3 (HYPRE_BoomerAMGSetInterpVecVariant,
-        OptDB.setValue('pc_hypre_boomeramg_strong_threshold', 0.5)
-        # OptDB.setValue('pc_hypre_boomeramg_nodal_coarsen', 2)
+        if args.precond == 'hypre':
+            OptDB.setValue('pc_hypre_boomeramg_cycle_type', 'V')
+            OptDB.setValue('pc_hypre_boomeramg_max_iter', 1)
+            OptDB.setValue('pc_hypre_boomeramg_smooth_type', 'Schwarz-smoothers')
+            OptDB.setValue('pc_hypre_boomeramg_interp_type', 'multipass')
+            # OptDB.setValue('pc_hypre_boomeramg_nodal_coarsen', 0)  # Use a nodal based coarsening 1-6 (HYPRE_BoomerAMGSetNodal,
+            # OptDB.setValue('pc_hypre_boomeramg_vec_interp_variant', 0)  # Variant of algorithm 1-3 (HYPRE_BoomerAMGSetInterpVecVariant,
+            OptDB.setValue('pc_hypre_boomeramg_strong_threshold', 0.5)
+            # OptDB.setValue('pc_hypre_boomeramg_nodal_coarsen', 2)
+        else:
+            import pyamg
+            from scipy.sparse import csr_matrix
+            from petsc_shell import petsc_py_wrapper
+
+            A_mat = as_backend_type(AA).mat()
+            A_ = csr_matrix(A_mat.getValuesCSR()[::-1])
+
+            B_ = A_.tobsr(blocksize=(2, 2))
+            ml = pyamg.smoothed_aggregation_solver(B_,
+                                                   smooth='energy',
+                                                   strength='symmetric')
+            B_ = ml.aspreconditioner()
+
+            pc = ksp_.getPC()
+            pc.setType(PETSc.PC.Type.PYTHON)
+            pc.setPythonContext(petsc_py_wrapper(B_))
+
 
         ksp_.setConvergenceHistory()
         ksp_.setFromOptions()
