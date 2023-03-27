@@ -22,9 +22,10 @@ def get_hypre_monolithic_precond(A, W, bcs):
     # NOTE: this is just some settings at the moment    
     parameters = {
         'pc_hypre_boomeramg_cycle_type': 'V',  # (choose one of, V W (None,
-        'pc_hypre_boomeramg_max_levels': 25,  #  Number of levels (of grids, allowed (None,
-        'pc_hypre_boomeramg_max_iter': 1,  #  Maximum iterations used PER hypre call (None,
-        'pc_hypre_boomeramg_tol': 0,  #  Convergence tolerance PER hypre call (0.0 = use a fixed number of iterations, (None,
+        'pc_hypre_boomeramg_max_levels': 25,  # Number of levels (of grids, allowed (None,
+        'pc_hypre_boomeramg_max_iter': 1,  # Maximum iterations used PER hypre call (None,
+        'pc_hypre_boomeramg_tol': 0,
+        # Convergence tolerance PER hypre call (0.0 = use a fixed number of iterations, (None,
         'pc_hypre_boomeramg_truncfactor': 0,  # Truncation factor for interpolation (0=no truncation, (None,
         'pc_hypre_boomeramg_P_max': 0,  # Max elements per row for interpolation operator (0=unlimited, (None,
         'pc_hypre_boomeramg_agg_nl': 0,  # Number of levels of aggressive coarsening (None,
@@ -47,56 +48,136 @@ def get_hypre_monolithic_precond(A, W, bcs):
         #'pc_hypre_boomeramg_measure_type': 'local',  # (choose one of, local global (None,
         #'pc_hypre_boomeramg_coarsen_type': 'Falgout',  # (choose one of, CLJP Ruge-Stueben  modifiedRuge-Stueben   Falgout  PMIS  HMIS (None,
         'pc_hypre_boomeramg_interp_type': 'multipass',  # (choose one of, classical   direct multipass multipass-wts ext+i ext+i-cc standard standard-wts   FF FF1 (None,
-        
         # 'pc_hypre_boomeramg_print_statistics': None,
         # 'pc_hypre_boomeramg_print_debug': None,
         # 'pc_hypre_boomeramg_nodal_relaxation:': 1,  # Nodal relaxation via Schwarz (None,
     }
-    
+
     Minv = AMG(M, parameters=parameters)
-    
-    return  R.T*Minv*R
+
+    return R.T * Minv * R
 
 
-def get_hazmath_metric_precond(A, W, bcs):
-    '''Invert block operator via hazmath amg'''
+def get_hazmath_amg_precond(A, W, bcs):
+    '''Invert block operator via hypre'''
     import haznics
-    import numpy as np
+    from block.algebraic.hazmath import AMG as AMGhaz
 
-    AA = xii.ii_convert(A)
-    idofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+    M = xii.ii_convert(A)
+    R = xii.ReductionOperator([len(W)], W)
 
     parameters = {
-        "prectype": 14,                             # which metric precond
-                                                    # 10: direct (LU) on interface part + AMG on the whole matrix (nonsymmetric multiplicative)
-                                                    # 11: direct (LU) on interface part + AMG on the whole matrix (additive)
-                                                    # 12: Schwarz method on interface part + AMG on the whole matrix (nonsymmetric multiplicative)
-                                                    # 13: Schwarz method on interface part + AMG on the whole matrix (additive)
-                                                    # 14: Schwarz method on interface part + AMG on the whole matrix (symmetric multiplicative)
-        "AMG_type": haznics.SA_AMG,                 # (UA, SA) + _AMG
-        "cycle_type": haznics.V_CYCLE,              # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
-        "max_levels": 10,
+        "prectype": 2,  # which metric precond
+        "AMG_type": haznics.UA_AMG,  # (UA, SA) + _AMG
+        "cycle_type": haznics.W_CYCLE,  # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
+        "max_levels": 2,
         "maxit": 1,
-        "smoother": haznics.SMOOTHER_GS,            # SMOOTHER_ + (JACOBI, GS, SGS, SSOR, ...) after schwarz method
+        "smoother": haznics.SMOOTHER_SGS,  # SMOOTHER_ + (JACOBI, GS, SGS, SSOR, ...) after schwarz method
         "relaxation": 1.0,
         "presmooth_iter": 1,
         "postsmooth_iter": 1,
         "coarse_dof": 100,
-        "coarse_solver": 32,                        # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
-        "coarse_scaling": haznics.OFF,              # (OFF, ON)
-        "aggregation_type": haznics.VMB,            # (VMB, MIS, MWM, HEC)
-        "strong_coupled": 0.0,                      # threshold
-        "max_aggregation": 20,
-        "Schwarz_levels": 1,                        # number for levels for Schwarz smoother
-        "Schwarz_mmsize": 200,                      # max block size in Schwarz method
-        "Schwarz_maxlvl": 2,                        # how many levels from dof to take
-        "Schwarz_type": haznics.SCHWARZ_SYMMETRIC,  # (SCHWARZ_FORWARD, SCHWARZ_BACKWARD, SCHWARZ_SYMMETRIC)
-        "Schwarz_blksolver": 32,                    # type of Schwarz block solver, 0 - iterative, 32 - UMFPACK
+        "coarse_solver": 32,  # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
+        "coarse_scaling": haznics.ON,  # (OFF, ON)
+        "aggregation_type": haznics.HEC,  # (VMB, MIS, MWM, HEC)
+        "strong_coupled": 0.0,  # threshold
+        "max_aggregation": 2,
+        "Schwarz_levels": 0,  # number for levels for Schwarz smoother
+        # "Schwarz_mmsize": 200,  # max block size in Schwarz method
+        # "Schwarz_maxlvl": 2,  # how many levels from dof to take
+        # "Schwarz_type": haznics.SCHWARZ_SYMMETRIC,  # (SCHWARZ_FORWARD, SCHWARZ_BACKWARD, SCHWARZ_SYMMETRIC)
+        # "Schwarz_blksolver": 32,  # type of Schwarz block solver, 0 - iterative, 32 - UMFPACK
+        "print_level": 10,
     }
 
-    return metricAMG(AA, W, idofs, parameters=parameters)
+    Minv = AMGhaz(M, parameters=parameters)
+    Ainv = R.T * Minv * R
+    return Ainv
 
+
+def get_hazmath_metric_precond(A, W, bcs, interface_dofs=None):
+    '''Invert block operator via hazmath amg'''
+    import haznics
+
+    AA = xii.ii_convert(A)
+    R = xii.ReductionOperator([len(W)], W)
+
+    Minv = get_hazmath_metric_precond_mono(AA, W, bcs, interface_dofs=interface_dofs)
+
+    return R.T * Minv * R
+
+
+def get_hazmath_metric_precond_mono(A, W, bcs, interface_dofs=None):
+    '''Invert block operator via hazmath amg'''
+    import haznics
+
+    parameters = {
+        "AMG_type": haznics.UA_AMG,  # (UA, SA) + _AMG
+        "cycle_type": haznics.W_CYCLE,  # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
+        "max_levels": 10,
+        "maxit": 1,
+        "smoother": haznics.SMOOTHER_GS,  # SMOOTHER_ + (JACOBI, GS, SGS, SSOR, ...) on coarse levels w/o schwarz
+        "relaxation": 1.2,
+        "presmooth_iter": 1,
+        "postsmooth_iter": 1,
+        "coarse_dof": 100,
+        "coarse_solver": 32,  # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
+        "coarse_scaling": haznics.ON,  # (OFF, ON)
+        "aggregation_type": haznics.HEC,  # (VMB, MIS, MWM, HEC)
+        "strong_coupled": 0.1,  # threshold?
+        "max_aggregation": 20,
+        "amli_degree": 3,
+        "Schwarz_levels": 1,  # number for levels where Schwarz smoother is used (1 starts with the finest level)
+        "Schwarz_mmsize": 200,  # max block size in Schwarz method
+        "Schwarz_maxlvl": 2,  # how many levels from Schwarz seed to take (how large each schwarz block will be)
+        "Schwarz_type": haznics.SCHWARZ_SYMMETRIC,  # (SCHWARZ_FORWARD, SCHWARZ_BACKWARD, SCHWARZ_SYMMETRIC)
+        "Schwarz_blksolver": 32,  # type of Schwarz block solver, 0 - iterative, 32 - UMFPACK
+        "print_level": 5, # 0 - print none, 10 - print all
+    }
+
+    # NB: if interface_dofs \not= all dofs, then the interface_dofs has the Schwarz and the rest the GS smoother
+    if interface_dofs is not None:
+        Minv = metricAMG(A, W, idofs=interface_dofs, parameters=parameters)
+    else:
+        Minv = metricAMG(A, W, parameters=parameters)
+
+    return Minv
+    # return A
 # ---
+
+
+def solve_haznics(A, b, W, interface_dofs=None):
+    from block.algebraic.hazmath import PETSc_to_dCSRmat
+    import haznics
+    import time
+
+    dimW = sum([VV.dim() for VV in W])
+    start_time = time.time()
+    # convert vectors
+    b_np = b[:]
+    bhaz = haznics.create_dvector(b_np)
+    xhaz = haznics.dvec_create_p(dimW)
+
+    # convert matrices
+    Ahaz = PETSc_to_dCSRmat(A)
+
+    if interface_dofs is None:
+        interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+    idofs = None #haznics.create_ivector(interface_dofs)
+    print("\n------------------- Data conversion time: ", time.time() - start_time, "\n")
+
+    # call solver
+    solve_start = time.time()
+    niters = haznics.fenics_metric_amg_solver_dcsr(Ahaz, bhaz, xhaz, idofs)
+    solve_end = time.time() - solve_start
+
+    xx = xhaz.to_ndarray()
+    wh = xii.ii_Function(W)
+    wh[0].vector().set_local(xx[:W[0].dim()])
+    wh[1].vector().set_local(xx[W[0].dim():])
+
+    return niters, wh, solve_end
+
 
 GREEN = '\033[1;37;32m%s\033[0m'
 RED = '\033[1;37;31m%s\033[0m'
@@ -112,7 +193,8 @@ def print_color(color, string):
 
 print_red = partial(print_color, RED)
 print_green = partial(print_color, GREEN)
-print_blue = partial(print_color, BLUE)    
+print_blue = partial(print_color, BLUE)
+
 
 # ---
 
@@ -129,7 +211,7 @@ def UnitSquareMeshes():
         df.CompiledSubDomain('near(x[0], 0)').mark(facet_f, 1)
         df.CompiledSubDomain('near(x[0], 1)').mark(facet_f, 2)
         df.CompiledSubDomain('near(x[1], 0)').mark(facet_f, 3)
-        df.CompiledSubDomain('near(x[1], 1)').mark(facet_f, 4)    
+        df.CompiledSubDomain('near(x[1], 1)').mark(facet_f, 4)
 
         yield (mesh, {2: cell_f, 1: facet_f})
 
@@ -150,7 +232,8 @@ def UnitCubeMeshes():
         df.CompiledSubDomain('near(x[0], 0) || near(x[0], 1)').mark(facet_f, 4)
 
         yield (mesh, {3: cell_f, 2: facet_f})
-        
+
+
 # --
 
 def SplitUnitSquareMeshes():
@@ -185,12 +268,12 @@ def SplitUnitSquareMeshes():
         mesh2 = xii.EmbeddedMesh(cell_f, 2)
         boundaries2 = mesh2.translate_markers(facet_f, (1, 5, 6, 7))
 
-        interface_mesh = xii.EmbeddedMesh(boundaries1, (1, ))
-        interface_mesh.compute_embedding(boundaries2, (1, ))        
+        interface_mesh = xii.EmbeddedMesh(boundaries1, (1,))
+        interface_mesh.compute_embedding(boundaries2, (1,))
 
         yield (boundaries1, boundaries2, interface_mesh)
 
-        
+
 def SplitUnitCubeMeshes():
     '''Stream of meshes'''
     while True:
@@ -212,7 +295,7 @@ def SplitUnitCubeMeshes():
         df.CompiledSubDomain('near(x[2], 0.5)').mark(facet_f, 1)
         df.CompiledSubDomain('(near(x[0], 0) || near(x[0], 1)) && x[2] > 0.5 - DOLFIN_EPS').mark(facet_f, 2)
         df.CompiledSubDomain('near(x[2], 1)').mark(facet_f, 3)
-        df.CompiledSubDomain('(near(x[1], 0) || near(x[1], 1)) && x[2] > 0.5 - DOLFIN_EPS').mark(facet_f, 4)        
+        df.CompiledSubDomain('(near(x[1], 0) || near(x[1], 1)) && x[2] > 0.5 - DOLFIN_EPS').mark(facet_f, 4)
         df.CompiledSubDomain('(near(x[0], 0) || near(x[0], 1)) && x[2] < 0.5 + DOLFIN_EPS').mark(facet_f, 5)
         df.CompiledSubDomain('near(x[2], 0)').mark(facet_f, 6)
         df.CompiledSubDomain('(near(x[1], 0) || near(x[1], 1)) && x[2] < 0.5 + DOLFIN_EPS').mark(facet_f, 7)
@@ -223,10 +306,11 @@ def SplitUnitCubeMeshes():
         mesh2 = xii.EmbeddedMesh(cell_f, 2)
         boundaries2 = mesh2.translate_markers(facet_f, (1, 5, 6, 7))
 
-        interface_mesh = xii.EmbeddedMesh(boundaries1, (1, ))
-        interface_mesh.compute_embedding(boundaries2, (1, ))
+        interface_mesh = xii.EmbeddedMesh(boundaries1, (1,))
+        interface_mesh.compute_embedding(boundaries2, (1,))
 
         yield (boundaries1, boundaries2, interface_mesh)
+
 
 # --
 
@@ -666,15 +750,14 @@ def get_interface_dofs(V, interface):
 
     tdim = interface.topology().dim()
     # For now interface should be manifold of co-dim 1
-    assert tdim == mesh.topology().dim()-1
+    assert tdim == mesh.topology().dim() - 1
     mapping = mapping[mesh.id()][tdim]
 
     facet_f = df.MeshFunction('size_t', mesh, tdim, 0)
     facet_f.array()[list(mapping.values())] = 1
 
     null = df.Constant(np.zeros(V.ufl_element().value_shape()))
-    dofs = list(df.DirichletBC(V, null, facet_f, 1).get_boundary_values().keys())
-
+    dofs = np.array(list(df.DirichletBC(V, null, facet_f, 1).get_boundary_values().keys()), dtype='int32')
     return dofs
 
 
@@ -695,7 +778,50 @@ def get_coupling_dofs(V, interface):
     
     return np.unique(dofs)
 
+
+def dump_system(AA, bb, W):
+    print('Write begin')
+    from petsc4py import PETSc
+    import scipy.sparse as sparse
+
+    def dump(thing, path):
+        if isinstance(thing, PETSc.Vec):
+            assert np.all(np.isfinite(thing.array))
+            return np.save(path, thing.array)
+        m = sparse.csr_matrix(thing.getValuesCSR()[::-1]).tocoo()
+        assert np.all(np.isfinite(m.data))
+        return np.save(path, np.c_[m.row, m.col, m.data])
+
+    [[A, Bt],
+     [B, C]] = AA
+    b0, b1 = bb
+    V0perm = PETSc.IS().createGeneral(np.array(df.vertex_to_dof_map(W[0]), dtype='int32'))
+    V1perm = PETSc.IS().createGeneral(np.array(df.vertex_to_dof_map(W[1]), dtype='int32'))
+    A_ = df.as_backend_type(xii.ii_convert(A)).mat().permute(V0perm, V0perm)
+    Bt_ = df.as_backend_type(xii.ii_convert(Bt)).mat().permute(V0perm, V1perm)
+    B_ = df.as_backend_type(xii.ii_convert(B)).mat().permute(V1perm, V0perm)
+    C_ = df.as_backend_type(xii.ii_convert(C)).mat().permute(V1perm, V1perm)
+
+    b0_ = df.as_backend_type(xii.ii_convert(b0)).vec()
+    b0_.permute(V0perm)
+    b1_ = df.as_backend_type(xii.ii_convert(b1)).vec()
+    b1_.permute(V1perm)
+
+    csr = B_.getValuesCSR()
+    interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+
+    dump(A_, 'A.npy')
+    dump(Bt_, 'Bt.npy')
+    dump(B_, 'B.npy')
+    dump(C_, 'C.npy')
+    dump(b0_, 'b0.npy')
+    dump(b1_, 'b1.npy')
+    assert np.all(np.isfinite(interface_dofs.data))
+    np.save('idofs.npy', interface_dofs)
+    print('Write done')
+
 # --------------------------------------------------------------------
+
 
 if __name__ == '__main__':
 
@@ -711,3 +837,6 @@ if __name__ == '__main__':
 
     df.File('bdr1.pvd') << bdry1
     df.File('bdr2.pvd') << bdry2    
+
+
+

@@ -245,10 +245,10 @@ if __name__ == '__main__':
 
             # Base print
             with open(get_path('iters', 'txt'), 'w') as out:
-                out.write('# %s\n' % ' '.join(headers_ksp))                
+                out.write('%s\n' % ' '.join(headers_ksp))
             
             with open(get_path('error', 'txt'), 'w') as out:
-                out.write('# %s\n' % ' '.join(headers_error))
+                out.write('%s\n' % ' '.join(headers_error))
         else:
             rates = np.log(errors/errors0)/np.log(h/h0)
         errors0, h0 = errors, h

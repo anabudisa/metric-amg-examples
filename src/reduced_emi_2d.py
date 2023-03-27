@@ -1,4 +1,5 @@
 # Primal formulation w/out the multiplier
+import xii.assembler.trace_matrix
 from dolfin import *
 from xii import *
 import sympy as sp
@@ -161,7 +162,7 @@ if __name__ == '__main__':
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
-    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre', 'hazmath'))
+    parser.add_argument('-precond', type=str, default='hazmath', choices=('diag', 'hypre', 'hazmath'))
     
     parser.add_argument('-save', type=int, default=0, choices=(0, 1), help='Save graphics')    
 
@@ -216,8 +217,13 @@ if __name__ == '__main__':
 
         then = time.time()
         # For simplicity only use block diagonal preconditioner
+        """if args.precond == "hazmath":
+            niters, wh, ksp_dt = utils.solve_haznics(AA, bb, W)
+            r_norm = 0
+            cond = -1
+        else:"""
         BB = get_precond(AA, W, bcs)
-        
+
         AAinv = ConjGrad(AA, precond=BB, tolerance=1E-10, show=4, maxiter=500, callback=cbk)
         xx = AAinv * bb
         ksp_dt = time.time() - then
@@ -254,10 +260,10 @@ if __name__ == '__main__':
 
             # Base print
             with open(get_path('iters', 'txt'), 'w') as out:
-                out.write('# %s\n' % ' '.join(headers_ksp))                
+                out.write('%s\n' % ' '.join(headers_ksp))
             
             with open(get_path('error', 'txt'), 'w') as out:
-                out.write('# %s\n' % ' '.join(headers_error))
+                out.write('%s\n' % ' '.join(headers_error))
         else:
             rates = np.log(errors/errors0)/np.log(h/h0)
         errors0, h0 = errors, h

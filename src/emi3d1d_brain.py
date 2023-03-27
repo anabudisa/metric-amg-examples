@@ -1,7 +1,7 @@
 #
 # Solve on one mesh
 #
-
+import xii.assembler.average_matrix
 from dolfin import *
 from xii import *
 import sympy as sp
@@ -82,7 +82,7 @@ def get_system(mesh3d, mesh1d, radius, data, pdegree, parameters):
     a[0][1] = -gamma*inner(u2, Rv1)*dx_
     a[1][0] = -gamma*inner(Ru1, v2)*dx_
     a[1][1] = inner(kappa2*dot(grad(u2), tau), dot(grad(v2), tau))*dx_ + gamma*inner(u2, v2)*dx_
-               
+
     f1, f2 = data['f1'], data['f2']
 
     L = block_form(W, 1)
@@ -116,9 +116,11 @@ if __name__ == '__main__':
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
-    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre'))
-    
-    parser.add_argument('-save', type=int, default=0, choices=(0, 1), help='Save graphics')    
+    parser.add_argument('-precond', type=str, default='diag',
+                        choices=('diag', 'hypre', 'hazmath', 'metric', 'metric_mono', 'metric_hazmath'))
+
+    parser.add_argument('-save', type=int, default=0, help='Save graphics')
+    parser.add_argument('-dump', type=int, default=0, help='Save matrices and vectors to .npy format')
 
     args, _ = parser.parse_known_args()
     
@@ -144,8 +146,11 @@ if __name__ == '__main__':
     table_ksp = []
 
     get_precond = {'diag': utils.get_block_diag_precond,
-                   'hypre': utils.get_hypre_monolithic_precond}[args.precond]
-
+                   'hypre': utils.get_hypre_monolithic_precond,
+                   'hazmath': utils.get_hazmath_amg_precond,  # solve w cbc CG + R.T*hazmathAMG*R preconditioner
+                   'metric': utils.get_hazmath_metric_precond,  # solve w cbc CG + R.T*metricAMG*R preconditioner
+                   'metric_mono': utils.get_hazmath_metric_precond_mono,  # solve w cbc CG + metricAMG on Amonolithic
+                   'metric_hazmath': None}[args.precond]  # solve w hazmath CG + hazmath metricAMG
     # Meshes
     mesh3d = Mesh()
     with HDF5File(mesh3d.mpi_comm(), './data/brava/darcy_mesh.h5', 'r') as h5:
@@ -156,7 +161,7 @@ if __name__ == '__main__':
         h5.read(mesh1d, '/mesh', False)
 
     mesh1d_radii = MeshFunction('double', mesh1d, 1, 0)
-    with HDF5File(mesh1d.mpi_comm(), './data/brava/BG001_data.h5', 'r') as h5:    
+    with HDF5File(mesh1d.mpi_comm(), './data/brava/BG001_data.h5', 'r') as h5:
         h5.read(mesh1d_radii, '/radii_cell_foo')
 
     # Get radius info
@@ -167,31 +172,73 @@ if __name__ == '__main__':
     AA, bb, W, bcs = get_system(mesh3d, mesh1d, radii,
                                 data=test_case, pdegree=pdegree, parameters=params)
 
-    cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b[i]-xi).norm("l2") for i, xi in enumerate(A*x)]}')
+    # cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b[i]-xi).norm("l2") for i, xi in enumerate(A*x)]}')
+
+    # Write system to .npy files
+    if args.dump and W[0].dim() + W[1].dim() > 1e6:
+        utils.dump_system(AA, bb, W)
+        exit(0)
+
+    # mono or block
+    if args.precond in {"metric_mono", "metric_hazmath"}:
+        AA_ = ii_convert(AA)
+        bb_ = ii_convert(bb)
+        cbk = lambda k, x, r, b=bb_, A=AA_: print(f'\titer{k} -> {[(b - A * x).norm("l2")]}')
+    else:
+        cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b - A * x).norm("l2")]}')
 
     then = time.time()
     # For simplicity only use block diagonal preconditioner
-    BB = get_precond(AA, W, bcs)
+    then = time.time()
+    if args.precond == "metric_hazmath":
+        # this one solves everything in hazmath
+        niters, wh, ksp_dt = utils.solve_haznics(AA_, bb_, W)
+        r_norm = 0
+        cond = -1
+    elif args.precond == "metric_mono":
+        # this one solves the monolithic system w cbc.block CG + metricAMG
+        interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+        BB = get_precond(AA_, W, bcs, interface_dofs)
 
-    AAinv = ConjGrad(AA, precond=BB, tolerance=1E-10, show=4, maxiter=500, callback=cbk)
-    xx = AAinv * bb
-    ksp_dt = time.time() - then
+        AAinv = ConjGrad(AA_, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)
+        xx = AAinv * bb_
+        ksp_dt = time.time() - then
 
-    wh = ii_Function(W)
-    for i, xxi in enumerate(xx):
-        wh[i].vector().axpy(1, xxi)
-    niters = len(AAinv.residuals)
-    r_norm = AAinv.residuals[-1]
+        wh = ii_Function(W)
+        wh[0].vector().set_local(xx[:W[0].dim()])
+        wh[1].vector().set_local(xx[W[0].dim():])
 
-    eigenvalues = AAinv.eigenvalue_estimates()
-    cond = max(eigenvalues)/min(eigenvalues)
+        niters = len(AAinv.residuals)
+        r_norm = AAinv.residuals[-1]
+        eigenvalues = AAinv.eigenvalue_estimates()
+        cond = max(eigenvalues) / min(eigenvalues)
+    else:
+        # these solve in block fashion
+        if args.precond == "metric":
+            interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+            BB = get_precond(AA, W, bcs, interface_dofs)
+        else:
+            BB = get_precond(AA, W, bcs)
+        AAinv = ConjGrad(AA, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)
+        xx = AAinv * bb
+        ksp_dt = time.time() - then
+
+        wh = ii_Function(W)
+        for i, xxi in enumerate(xx):
+            wh[i].vector().axpy(1, xxi)
+
+        niters = len(AAinv.residuals)
+        r_norm = AAinv.residuals[-1]
+
+        eigenvalues = AAinv.eigenvalue_estimates()
+        cond = max(eigenvalues) / min(eigenvalues)
 
     h = W[0].mesh().hmin()
     ndofs = sum(Wi.dim() for Wi in W)
 
     # Base print
     with open(get_path('iters', 'txt'), 'w') as out:
-        out.write('# %s\n' % ' '.join(headers_ksp))                
+        out.write('%s\n' % ' '.join(headers_ksp))
 
     # ---
     ksp_row = (ndofs, niters, cond, ksp_dt, r_norm, h) 

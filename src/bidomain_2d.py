@@ -1,7 +1,7 @@
 from dolfin import *
-from xii import *
 import sympy as sp
 import ulfy
+from xii import *
 
 
 def setup_mms(params):
@@ -48,7 +48,6 @@ def setup_mms(params):
     return data
 
 
-
 def get_system(boundaries, data, pdegree, parameters):
     """Setup the linear system A*x = b in W where W has bcs"""
     kappa1, kappa2, gamma = (Constant(parameters.kappa1),
@@ -73,7 +72,7 @@ def get_system(boundaries, data, pdegree, parameters):
     #  1
     dirichlet_tags = (1, 2)  
 
-    all_tags = set((1, 2, 3, 4))
+    all_tags = {1, 2, 3, 4}
     neumann_tags = tuple(all_tags - set(dirichlet_tags))  # Neumann is full stress
     
     f1, f2 = data['f1'], data['f2']
@@ -101,6 +100,7 @@ def get_system(boundaries, data, pdegree, parameters):
 
 # --------------------------------------------------------------------
 
+
 if __name__ == '__main__':
     from block.iterative import ConjGrad
     from collections import namedtuple
@@ -117,9 +117,10 @@ if __name__ == '__main__':
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
-    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre'))
+    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre', 'hazmath', 'metric', 'metric_mono', 'metric_hazmath'))
     
-    parser.add_argument('-save', type=int, default=0, help='Save graphics')    
+    parser.add_argument('-save', type=int, default=0, help='Save graphics')
+    parser.add_argument('-dump', type=int, default=0, help='Save matrices and vectors to .npy format')
 
     args, _ = parser.parse_known_args()
     
@@ -133,7 +134,7 @@ if __name__ == '__main__':
     Params = namedtuple('Params', ('kappa1', 'kappa2', 'gamma'))
     params = Params(args.kappa1, args.kappa2, args.gamma)
     utils.print_red(str(params))
-    
+
     # Setup MMS
     test_case = setup_mms(params)
 
@@ -148,7 +149,11 @@ if __name__ == '__main__':
     table_error = []
 
     get_precond = {'diag': utils.get_block_diag_precond,
-                   'hypre': utils.get_hypre_monolithic_precond}[args.precond]
+                   'hypre': utils.get_hypre_monolithic_precond,
+                   'hazmath': utils.get_hazmath_amg_precond,  # solve w cbc CG + R.T*hazmathAMG*R preconditioner
+                   'metric': utils.get_hazmath_metric_precond,  # solve w cbc CG + R.T*metricAMG*R preconditioner
+                   'metric_mono': utils.get_hazmath_metric_precond_mono,  # solve w cbc CG + metricAMG on Amonolithic
+                   'metric_hazmath': None}[args.precond]  # solve w hazmath CG + hazmath metricAMG
 
     mesh_generator = utils.UnitSquareMeshes()
     next(mesh_generator)
@@ -156,32 +161,71 @@ if __name__ == '__main__':
     u1_true, u2_true = test_case['u1'], test_case['u2']
     # Let's do this thing
     errors0, h0, diameters = None, None, None
-    for ncells in (2**i for i in range(4, 4+args.nrefs)):
+    for ncells in (2**i for i in range(5, 5+args.nrefs)):
         mesh, entity_fs = mesh_generator.send(ncells)
         next(mesh_generator)
 
         cell_f, facet_f = entity_fs[2], entity_fs[1]
 
+        # assemble
         AA, bb, W, bcs = get_system(facet_f, data=test_case, pdegree=pdegree, parameters=params)
 
-        cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b[i]-xi).norm("l2") for i, xi in enumerate(A*x)]}')
+        # Write system to .npy files
+        if args.dump and W[0].dim()+W[1].dim() > 1e6:
+            utils.dump_system(AA, bb, W)
+            exit(0)
+
+        # mono or block
+        if args.precond in {"metric_mono", "metric_hazmath"}:
+            AA_ = ii_convert(AA)
+            bb_ = ii_convert(bb)
+            cbk = lambda k, x, r, b=bb_, A=AA_: print(f'\titer{k} -> {[(b - A * x).norm("l2")]}')
+        else:
+            cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b-A*x).norm("l2")]}')
 
         then = time.time()
-        # For simplicity only use block diagonal preconditioner
-        BB = get_precond(AA, W, bcs)
-        
-        AAinv = ConjGrad(AA, precond=BB, tolerance=1E-10, show=4, maxiter=500, callback=cbk)
-        xx = AAinv * bb
-        ksp_dt = time.time() - then
+        if args.precond == "metric_hazmath":
+            # this one solves everything in hazmath
+            niters, wh, ksp_dt = utils.solve_haznics(AA_, bb_, W)
+            r_norm = 0
+            cond = -1
+        elif args.precond == "metric_mono":
+            # this one solves the monolithic system w cbc.block CG + metricAMG
+            interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+            BB = get_precond(AA_, W, bcs, interface_dofs)
 
-        wh = ii_Function(W)
-        for i, xxi in enumerate(xx):
-            wh[i].vector().axpy(1, xxi)
-        niters = len(AAinv.residuals)
-        r_norm = AAinv.residuals[-1]
-        
-        eigenvalues = AAinv.eigenvalue_estimates()
-        cond = max(eigenvalues)/min(eigenvalues)
+            AAinv = ConjGrad(AA_, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)
+            xx = AAinv * bb_
+            ksp_dt = time.time() - then
+
+            wh = ii_Function(W)
+            wh[0].vector().set_local(xx[:W[0].dim()])
+            wh[1].vector().set_local(xx[W[0].dim():])
+
+            niters = len(AAinv.residuals)
+            r_norm = AAinv.residuals[-1]
+            eigenvalues = AAinv.eigenvalue_estimates()
+            cond = max(eigenvalues) / min(eigenvalues)
+        else:
+            # these solve in block fashion
+            if args.precond == "metric":
+                interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
+                BB = get_precond(AA, W, bcs, interface_dofs)
+            else:
+                BB = get_precond(AA, W, bcs)
+            AAinv = ConjGrad(AA, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)
+            xx = AAinv * bb
+            ksp_dt = time.time() - then
+
+            wh = ii_Function(W)
+            for i, xxi in enumerate(xx):
+                wh[i].vector().axpy(1, xxi)
+
+            niters = len(AAinv.residuals)
+            r_norm = AAinv.residuals[-1]
+
+            eigenvalues = AAinv.eigenvalue_estimates()
+            cond = max(eigenvalues) / min(eigenvalues)
 
         h = W[0].mesh().hmin()
         ndofs = sum(Wi.dim() for Wi in W)
@@ -195,10 +239,10 @@ if __name__ == '__main__':
 
             # Base print
             with open(get_path('iters', 'txt'), 'w') as out:
-                out.write('# %s\n' % ' '.join(headers_ksp))                
+                out.write('%s\n' % ' '.join(headers_ksp))
             
             with open(get_path('error', 'txt'), 'w') as out:
-                out.write('# %s\n' % ' '.join(headers_error))
+                out.write('%s\n' % ' '.join(headers_error))
         else:
             rates = np.log(errors/errors0)/np.log(h/h0)
         errors0, h0 = errors, h
@@ -206,7 +250,8 @@ if __name__ == '__main__':
         # ---
         ksp_row = (ndofs, niters, cond, ksp_dt, r_norm, h0) 
         table_ksp.append(ksp_row)
-        utils.print_blue(tabulate.tabulate(table_ksp, headers=headers_ksp))
+        if ncells > 2 ** (5 + args.nrefs - 2):
+            utils.print_blue(tabulate.tabulate(table_ksp, headers=headers_ksp))
 
         with open(get_path('iters', 'txt'), 'a') as out:
             out.write('%s\n' % (' '.join(tuple(map(str, ksp_row)))))
@@ -214,7 +259,8 @@ if __name__ == '__main__':
         # ---
         error_row = (ndofs, h0) + sum(zip(errors, rates), ())
         table_error.append(error_row)
-        utils.print_green(tabulate.tabulate(table_error, headers=headers_error))        
+        if ncells > 2 ** (5 + args.nrefs - 2):
+            utils.print_green(tabulate.tabulate(table_error, headers=headers_error))
         
         with open(get_path('error', 'txt'), 'a') as out:
             out.write('%s\n' % (' '.join(tuple(map(str, error_row)))))
