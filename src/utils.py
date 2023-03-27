@@ -48,7 +48,7 @@ def get_hypre_monolithic_precond(A, W, bcs):
         'pc_hypre_boomeramg_measure_type': 'local',  # (choose one of, local global (None,
         'pc_hypre_boomeramg_coarsen_type': 'Falgout',
         # (choose one of, CLJP Ruge-Stueben  modifiedRuge-Stueben   Falgout  PMIS  HMIS (None,
-        'pc_hypre_boomeramg_interp_type': 'classical',
+        'pc_hypre_boomeramg_interp_type': 'multipass',
         # (choose one of, classical   direct multipass multipass-wts ext+i ext+i-cc standard standard-wts   FF FF1 (None,
 
         # 'pc_hypre_boomeramg_print_statistics': None,
@@ -73,7 +73,7 @@ def get_hazmath_amg_precond(A, W, bcs):
         "prectype": 2,  # which metric precond
         "AMG_type": haznics.UA_AMG,  # (UA, SA) + _AMG
         "cycle_type": haznics.W_CYCLE,  # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
-        "max_levels": 10,
+        "max_levels": 2,
         "maxit": 1,
         "smoother": haznics.SMOOTHER_GS,  # SMOOTHER_ + (JACOBI, GS, SGS, SSOR, ...) after schwarz method
         "relaxation": 1.0,
@@ -83,13 +83,13 @@ def get_hazmath_amg_precond(A, W, bcs):
         "coarse_solver": 32,  # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
         "coarse_scaling": haznics.OFF,  # (OFF, ON)
         "aggregation_type": haznics.HEC,  # (VMB, MIS, MWM, HEC)
-        "strong_coupled": 0.0,  # threshold
+        "strong_coupled": 0.1,  # threshold
         "max_aggregation": 20,
         "Schwarz_levels": 0,  # number for levels for Schwarz smoother
-        "Schwarz_mmsize": 200,  # max block size in Schwarz method
-        "Schwarz_maxlvl": 2,  # how many levels from dof to take
-        "Schwarz_type": haznics.SCHWARZ_SYMMETRIC,  # (SCHWARZ_FORWARD, SCHWARZ_BACKWARD, SCHWARZ_SYMMETRIC)
-        "Schwarz_blksolver": 32,  # type of Schwarz block solver, 0 - iterative, 32 - UMFPACK
+        # "Schwarz_mmsize": 200,  # max block size in Schwarz method
+        # "Schwarz_maxlvl": 2,  # how many levels from dof to take
+        # "Schwarz_type": haznics.SCHWARZ_SYMMETRIC,  # (SCHWARZ_FORWARD, SCHWARZ_BACKWARD, SCHWARZ_SYMMETRIC)
+        # "Schwarz_blksolver": 32,  # type of Schwarz block solver, 0 - iterative, 32 - UMFPACK
         "print_level": 10,
     }
 
@@ -115,7 +115,7 @@ def get_hazmath_metric_precond_mono(A, W, bcs, interface_dofs=None):
     import haznics
 
     parameters = {
-        "AMG_type": haznics.SA_AMG,  # (UA, SA) + _AMG
+        "AMG_type": haznics.UA_AMG,  # (UA, SA) + _AMG
         "cycle_type": haznics.W_CYCLE,  # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
         "max_levels": 10,
         "maxit": 1,
@@ -125,14 +125,14 @@ def get_hazmath_metric_precond_mono(A, W, bcs, interface_dofs=None):
         "postsmooth_iter": 1,
         "coarse_dof": 100,
         "coarse_solver": 32,  # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
-        "coarse_scaling": haznics.OFF,  # (OFF, ON)
+        "coarse_scaling": haznics.ON,  # (OFF, ON)
         "aggregation_type": haznics.HEC,  # (VMB, MIS, MWM, HEC)
         "strong_coupled": 0.1,  # threshold?
         "max_aggregation": 20,
         "amli_degree": 3,
         "Schwarz_levels": 1,  # number for levels where Schwarz smoother is used (1 starts with the finest level)
-        "Schwarz_mmsize": 1,  # max block size in Schwarz method
-        "Schwarz_maxlvl": 1,  # how many levels from Schwarz seed to take (how large each schwarz block will be)
+        "Schwarz_mmsize": 200,  # max block size in Schwarz method
+        "Schwarz_maxlvl": 2,  # how many levels from Schwarz seed to take (how large each schwarz block will be)
         "Schwarz_type": haznics.SCHWARZ_SYMMETRIC,  # (SCHWARZ_FORWARD, SCHWARZ_BACKWARD, SCHWARZ_SYMMETRIC)
         "Schwarz_blksolver": 32,  # type of Schwarz block solver, 0 - iterative, 32 - UMFPACK
         "print_level": 5, # 0 - print none, 10 - print all
