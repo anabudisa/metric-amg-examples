@@ -75,16 +75,16 @@ def get_hazmath_amg_precond(A, W, bcs):
         "cycle_type": haznics.W_CYCLE,  # (V, W, AMLI, NL_AMLI, ADD) + _CYCLE
         "max_levels": 2,
         "maxit": 1,
-        "smoother": haznics.SMOOTHER_GS,  # SMOOTHER_ + (JACOBI, GS, SGS, SSOR, ...) after schwarz method
+        "smoother": haznics.SMOOTHER_SGS,  # SMOOTHER_ + (JACOBI, GS, SGS, SSOR, ...) after schwarz method
         "relaxation": 1.0,
         "presmooth_iter": 1,
         "postsmooth_iter": 1,
         "coarse_dof": 100,
         "coarse_solver": 32,  # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
-        "coarse_scaling": haznics.OFF,  # (OFF, ON)
+        "coarse_scaling": haznics.ON,  # (OFF, ON)
         "aggregation_type": haznics.HEC,  # (VMB, MIS, MWM, HEC)
-        "strong_coupled": 0.1,  # threshold
-        "max_aggregation": 20,
+        "strong_coupled": 0.0,  # threshold
+        "max_aggregation": 2,
         "Schwarz_levels": 0,  # number for levels for Schwarz smoother
         # "Schwarz_mmsize": 200,  # max block size in Schwarz method
         # "Schwarz_maxlvl": 2,  # how many levels from dof to take
