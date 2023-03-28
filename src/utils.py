@@ -58,13 +58,13 @@ def get_hypre_monolithic_precond(A, W, bcs):
     return R.T * Minv * R
 
 
-def get_hazmath_amg_precond(A, W, bcs):
+def get_hazmath_amg_precond(A, W, bcs, interface_dofs=None):
     '''Invert block operator via hypre'''
     import haznics
     from block.algebraic.hazmath import AMG as AMGhaz
 
-    M = xii.ii_convert(A)
-    R = xii.ReductionOperator([len(W)], W)
+    # M = xii.ii_convert(A)
+    # R = xii.ReductionOperator([len(W)], W)
 
     parameters = {
         "prectype": 2,  # which metric precond
@@ -90,9 +90,9 @@ def get_hazmath_amg_precond(A, W, bcs):
         "print_level": 10,
     }
 
-    Minv = AMGhaz(M, parameters=parameters)
-    Ainv = R.T * Minv * R
-    return Ainv
+    Minv = AMGhaz(A, parameters=parameters)
+    # Ainv = R.T * Minv * R
+    return Minv
 
 
 def get_hazmath_metric_precond(A, W, bcs, interface_dofs=None):

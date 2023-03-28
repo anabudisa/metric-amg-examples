@@ -176,7 +176,7 @@ if __name__ == '__main__':
             exit(0)
 
         # mono or block
-        if args.precond in {"metric_mono", "metric_hazmath"}:
+        if args.precond in {"metric_mono", "metric_hazmath", "hazmath"}:
             AA_ = ii_convert(AA)
             bb_ = ii_convert(bb)
             cbk = lambda k, x, r, b=bb_, A=AA_: print(f'\titer{k} -> {[(b - A * x).norm("l2")]}')
@@ -189,7 +189,7 @@ if __name__ == '__main__':
             niters, wh, ksp_dt = utils.solve_haznics(AA_, bb_, W)
             r_norm = 0
             cond = -1
-        elif args.precond == "metric_mono":
+        elif args.precond == "metric_mono" or args.precond == "hazmath":
             # this one solves the monolithic system w cbc.block CG + metricAMG
             interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
             BB = get_precond(AA_, W, bcs, interface_dofs)
@@ -202,7 +202,7 @@ if __name__ == '__main__':
             wh[0].vector().set_local(xx[:W[0].dim()])
             wh[1].vector().set_local(xx[W[0].dim():])
 
-            niters = len(AAinv.residuals)
+            niters = len(AAinv.residuals) - 1
             r_norm = AAinv.residuals[-1]
             eigenvalues = AAinv.eigenvalue_estimates()
             cond = max(eigenvalues) / min(eigenvalues)
@@ -221,7 +221,7 @@ if __name__ == '__main__':
             for i, xxi in enumerate(xx):
                 wh[i].vector().axpy(1, xxi)
 
-            niters = len(AAinv.residuals)
+            niters = len(AAinv.residuals) - 1
             r_norm = AAinv.residuals[-1]
 
             eigenvalues = AAinv.eigenvalue_estimates()
