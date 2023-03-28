@@ -112,7 +112,7 @@ if __name__ == '__main__':
     u1_true, u2_true = test_case['u1'], test_case['u2']
     # Let's do this thing
     errors0, h0, diameters = None, None, None
-    for ncells in (2**i for i in range(3, 3+args.nrefs)):
+    for ncells in (2**i for i in range(7, 7+args.nrefs)):
         mesh, entity_fs = mesh_generator.send(ncells)
         next(mesh_generator)
 
@@ -134,7 +134,7 @@ if __name__ == '__main__':
 
         # mono or block
         then = time.time()
-        if args.precond in {"metric_mono", "metric_hazmath"}:
+        if args.precond in {"metric_mono", "metric_hazmath", "hazmath"}:
             AA_ = ii_convert(AA)
             bb_ = ii_convert(bb)
             cbk = lambda k, x, r, b=bb_, A=AA_: print(f'\titer{k} -> {[(b - A * x).norm("l2")]}')
@@ -147,7 +147,7 @@ if __name__ == '__main__':
             niters, wh, ksp_dt = utils.solve_haznics(AA_, bb_, W)
             r_norm = 0
             cond = -1
-        elif args.precond == "metric_mono":
+        elif args.precond == "metric_mono" or args.precond == "hazmath":
             # this one solves the monolithic system w cbc.block CG + metricAMG
             interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
             BB = get_precond(AA_, W, bcs, interface_dofs)
@@ -160,7 +160,7 @@ if __name__ == '__main__':
             wh[0].vector().set_local(xx[:W[0].dim()])
             wh[1].vector().set_local(xx[W[0].dim():])
 
-            niters = len(AAinv.residuals)
+            niters = len(AAinv.residuals)-1
             r_norm = AAinv.residuals[-1]
             eigenvalues = AAinv.eigenvalue_estimates()
             cond = max(eigenvalues) / min(eigenvalues)
@@ -179,7 +179,7 @@ if __name__ == '__main__':
             for i, xxi in enumerate(xx):
                 wh[i].vector().axpy(1, xxi)
 
-            niters = len(AAinv.residuals)
+            niters = len(AAinv.residuals)-1
             r_norm = AAinv.residuals[-1]
 
             eigenvalues = AAinv.eigenvalue_estimates()
@@ -198,7 +198,7 @@ if __name__ == '__main__':
         ndofs = sum(Wi.dim() for Wi in W)
 
         eu1 = errornorm(u1_true, wh[0], 'H1', degree_rise=1)
-        eu2 = errornorm(u2_true, wh[1], 'H1', degree_rise=1)        
+        eu2 = errornorm(u2_true, wh[1], 'H1', degree_rise=1)
         errors = np.array([eu1, eu2])
 
         if errors0 is None:
@@ -213,7 +213,7 @@ if __name__ == '__main__':
         else:
             rates = np.log(errors/errors0)/np.log(h/h0)
         errors0, h0 = errors, h
-
+        h0 = h
         # ---
         ksp_row = (ndofs, niters, cond, ksp_dt, r_norm, h0) 
         table_ksp.append(ksp_row)
@@ -225,7 +225,7 @@ if __name__ == '__main__':
         # ---
         error_row = (ndofs, h0) + sum(zip(errors, rates), ())
         table_error.append(error_row)
-        utils.print_green(tabulate.tabulate(table_error, headers=headers_error))        
+        utils.print_green(tabulate.tabulate(table_error, headers=headers_error))
         
         with open(get_path('error', 'txt'), 'a') as out:
             out.write('%s\n' % (' '.join(tuple(map(str, error_row)))))
