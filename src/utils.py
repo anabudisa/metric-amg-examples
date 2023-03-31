@@ -79,7 +79,7 @@ def get_hazmath_amg_precond(A, W, bcs, interface_dofs=None):
         "coarse_dof": 100,
         "coarse_solver": 32,  # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
         "coarse_scaling": haznics.ON,  # (OFF, ON)
-        "aggregation_type": haznics.HEC,  # (VMB, MIS, MWM, HEC)
+        "aggregation_type": haznics.HEM,  # (VMB, MIS, MWM, HEC, HEM)
         "strong_coupled": 0.1,  # threshold
         "max_aggregation": 2,
         "Schwarz_levels": 0,  # number for levels for Schwarz smoother
@@ -123,7 +123,7 @@ def get_hazmath_metric_precond_mono(A, W, bcs, interface_dofs=None):
         "coarse_dof": 100,
         "coarse_solver": 32,  # (32 = SOLVER_UMFPACK, 0 = ITERATIVE)
         "coarse_scaling": haznics.ON,  # (OFF, ON)
-        "aggregation_type": haznics.HEC,  # (VMB, MIS, MWM, HEC)
+        "aggregation_type": haznics.HEM,  # (VMB, MIS, MWM, HEC)
         "strong_coupled": 0.1,  # threshold?
         "max_aggregation": 20,
         "amli_degree": 3,
