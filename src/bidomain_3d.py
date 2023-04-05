@@ -112,7 +112,7 @@ if __name__ == '__main__':
     u1_true, u2_true = test_case['u1'], test_case['u2']
     # Let's do this thing
     errors0, h0, diameters = None, None, None
-    for ncells in (2**i for i in range(7, 7+args.nrefs)):
+    for ncells in (2**i for i in range(3, 3+args.nrefs)):
         mesh, entity_fs = mesh_generator.send(ncells)
         next(mesh_generator)
 

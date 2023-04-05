@@ -117,7 +117,7 @@ if __name__ == '__main__':
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
     parser.add_argument('-precond', type=str, default='hazmath', choices=('diag', 'hypre', 'hazmath'))
-    
+    parser.add_argument('-dump', type=int, default=0, choices=(0, 1), help='Save matrices')
     parser.add_argument('-save', type=int, default=0, choices=(0, 1), help='Save graphics')    
 
     args, _ = parser.parse_known_args()
@@ -142,15 +142,15 @@ if __name__ == '__main__':
 
     # Meshes
     mesh3d = Mesh()
-    with XDMFFile(mesh3d.mpi_comm(), './data/sylvie_haznics/3d_c.xdmf') as f:
+    with XDMFFile(mesh3d.mpi_comm(), './data/sylvie_haznics/3d_grid.xdmf') as f:
         f.read(mesh3d)
 
     mesh1d = Mesh()
-    with XDMFFile(mesh1d.mpi_comm(), './data/sylvie_haznics/1d_graph.xdmf') as f:
+    with XDMFFile(mesh1d.mpi_comm(), './data/sylvie_haznics/1d_grid.xdmf') as f:
         f.read(mesh1d)
 
     mesh1d_radii = MeshFunction('double', mesh1d, mesh1d.topology().dim())
-    with XDMFFile(mesh1d.mpi_comm(), './data/sylvie_haznics/1d_graph.xdmf') as f:
+    with XDMFFile(mesh1d.mpi_comm(), './data/sylvie_haznics/1d_grid.xdmf') as f:
         f.read(mesh1d_radii, 'thickness')
 
     # Get radius info
@@ -169,9 +169,9 @@ if __name__ == '__main__':
     AA, bb, W, bcs = get_system(mesh3d, mesh1d, radii,
                                 data=test_case, pdegree=pdegree, parameters=params)
 
-    dump = False
+    # dump = False
     load_solution = False
-    if dump:
+    if args.dump:
         utils.dump_system(AA, bb, W)
         exit()
 
