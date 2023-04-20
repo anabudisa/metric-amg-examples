@@ -779,7 +779,7 @@ def get_coupling_dofs(V, interface):
     return np.unique(dofs)
 
 
-def dump_system(AA, bb, W):
+def dump_system(AA, bb, W, meshes=None):
     print('Write begin')
     from petsc4py import PETSc
     import scipy.sparse as sparse
@@ -808,16 +808,21 @@ def dump_system(AA, bb, W):
     b1_.permute(V1perm)
 
     csr = B_.getValuesCSR()
+    # dofs3d = get_interface_dofs(W[0], meshes[2])
+    dofs3d = np.arange(W[0].dim())
     interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
 
-    dump(A_, 'A.npy')
-    dump(Bt_, 'Bt.npy')
-    dump(B_, 'B.npy')
-    dump(C_, 'C.npy')
-    dump(b0_, 'b0.npy')
-    dump(b1_, 'b1.npy')
+    folder = './data/sylvie_haznics/trace-tets-1/gamma8/'
+    dump(A_, folder+'A.npy')
+    dump(Bt_, folder+'Bt.npy')
+    dump(B_, folder+'B.npy')
+    dump(C_, folder+'C.npy')
+    dump(b0_, folder+'b0.npy')
+    dump(b1_, folder+'b1.npy')
     assert np.all(np.isfinite(interface_dofs.data))
-    np.save('idofs.npy', interface_dofs)
+    assert np.all(np.isfinite(dofs3d))
+    np.save(folder+'idofs.npy', interface_dofs)
+    np.save(folder+'idofs3d.npy', dofs3d)
     print('Write done')
 
 # --------------------------------------------------------------------

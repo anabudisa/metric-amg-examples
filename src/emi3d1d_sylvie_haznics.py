@@ -72,8 +72,13 @@ def get_system(mesh3d, mesh1d, radius, data, pdegree, parameters):
 
     # ---
 
-    cylinder = Circle(radius=radius, degree=5)
-    Ru1, Rv1 = Average(u1, mesh1d, cylinder), Average(v1, mesh1d, cylinder)
+    # Average (coupling_radius > 0) or trace (coupling_radius = 0)
+    if np.all(radius) > 0:
+        # Averaging surface
+        cylinder = Circle(radius=radius, degree=5)
+        Ru1, Rv1 = Average(u1, mesh1d, cylinder), Average(v1, mesh1d, cylinder)
+    else:
+        Ru1, Rv1 = Average(u1, mesh1d, None), Average(v1, mesh1d, None)
 
     dx_ = Measure('dx', domain=mesh1d)
 
@@ -110,9 +115,9 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # Material properties
-    parser.add_argument('-kappa1', type=float, default=2, help='Diffusion in 1')
-    parser.add_argument('-kappa2', type=float, default=3, help='Diffusion in 2')
-    parser.add_argument('-gamma', type=float, default=5, help='Coupling strength')            
+    parser.add_argument('-kappa1', type=float, default=1, help='Diffusion in 1')
+    parser.add_argument('-kappa2', type=float, default=2, help='Diffusion in 2')
+    parser.add_argument('-gamma', type=float, default=1, help='Coupling strength')
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
@@ -142,37 +147,40 @@ if __name__ == '__main__':
 
     # Meshes
     mesh3d = Mesh()
-    with XDMFFile(mesh3d.mpi_comm(), './data/sylvie_haznics/3d_grid.xdmf') as f:
+    with XDMFFile(mesh3d.mpi_comm(), './data/sylvie_haznics/3d_grid1.xdmf') as f:
         f.read(mesh3d)
 
     mesh1d = Mesh()
-    with XDMFFile(mesh1d.mpi_comm(), './data/sylvie_haznics/1d_grid.xdmf') as f:
+    with XDMFFile(mesh1d.mpi_comm(), './data/sylvie_haznics/1d_grid1.xdmf') as f:
         f.read(mesh1d)
 
-    mesh1d_radii = MeshFunction('double', mesh1d, mesh1d.topology().dim())
-    with XDMFFile(mesh1d.mpi_comm(), './data/sylvie_haznics/1d_grid.xdmf') as f:
-        f.read(mesh1d_radii, 'thickness')
+    # mesh1d_radii = MeshFunction('double', mesh1d, mesh1d.topology().dim())
+    # with XDMFFile(mesh1d.mpi_comm(), './data/sylvie_haznics/1d_grid1.xdmf') as f:
+    #     f.read(mesh1d_radii, 'thickness')
+    # interface = MeshFunction('size_t', mesh1d, 1, 0)
+    # interface_mesh = EmbeddedMesh(interface, 1)
 
     # Get radius info
-    P0 = FunctionSpace(mesh1d, 'DG', 0)
-    radii = Function(P0)
-    mesh_radii = mesh1d_radii.array()
-    radii.vector().set_local(mesh_radii)
+    # P0 = FunctionSpace(mesh1d, 'DG', 0)
+    # radii = Function(P0)
+    # mesh_radii = mesh1d_radii.array()
+    # radii.vector().set_local(mesh_radii)
 
-    avg_radius = sum(mesh_radii)/mesh_radii.shape[0]
+    avg_radius = 0.  # sum(mesh_radii)/mesh_radii.shape[0]
     Params = namedtuple('Params', ('kappa1', 'kappa2', 'gamma'))
-    params = Params(args.kappa1, args.kappa2*(avg_radius**2), args.gamma*avg_radius)
+    params = Params(args.kappa1, args.kappa2, args.gamma)
     utils.print_red(str(params))
 
     # Setup MMS
     test_case = setup_mms(params)
-    AA, bb, W, bcs = get_system(mesh3d, mesh1d, radii,
+    AA, bb, W, bcs = get_system(mesh3d, mesh1d, avg_radius,
                                 data=test_case, pdegree=pdegree, parameters=params)
 
     # dump = False
     load_solution = False
     if args.dump:
-        utils.dump_system(AA, bb, W)
+        meshes = (mesh3d, mesh1d)
+        utils.dump_system(AA, bb, W, meshes)
         exit()
 
     if load_solution:
