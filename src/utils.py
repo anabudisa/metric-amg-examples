@@ -812,7 +812,7 @@ def dump_system(AA, bb, W, meshes=None):
     dofs3d = np.arange(W[0].dim())
     interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
 
-    folder = './data/sylvie_haznics/trace-tets-1/gamma8/'
+    folder = './data/neuron/gamma6/'
     dump(A_, folder+'A.npy')
     dump(Bt_, folder+'Bt.npy')
     dump(B_, folder+'B.npy')
