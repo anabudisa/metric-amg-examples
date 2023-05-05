@@ -73,10 +73,10 @@ def get_system(edge_f, k3=1e0, k1=1e0, gamma=1e0, coupling_radius=0.):
         # Averaging surface
         cylinder = Circle(radius=coupling_radius, degree=10)
         Ru, Rv = Average(u, meshQ, cylinder), Average(v, meshQ, cylinder)
-        C = average_3d1d_matrix(V, Q, cylinder)
+        # C = average_3d1d_matrix(V, Q, cylinder)
     else:
         Ru, Rv = Average(u, meshQ, None), Average(v, meshQ, None)
-        C = trace_3d1d_matrix(V, Q, meshQ)
+        # C = trace_3d1d_matrix(V, Q, meshQ)
 
     # Line integral
     dx_ = Measure('dx', domain=meshQ)
@@ -105,7 +105,7 @@ def get_system(edge_f, k3=1e0, k1=1e0, gamma=1e0, coupling_radius=0.):
     # Coupling info
     # C = csr_matrix(C.getValuesCSR()[::-1], shape=C.size)
 
-    return A, b, W, C
+    return A, b, W
 
 # --------------------------------------------------------------------
 
@@ -120,10 +120,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-gamma', type=float, default=1, help='Coupling strength')
     parser.add_argument('-dump', type=int, default=0, choices=(0, 1), help='Save matrices')
+    parser.add_argument('-radius', type=float, default=1, help='Coupling radius')
+    parser.add_argument('-outdir', type=str, default="./", help='Where to save matrices')
     args, _ = parser.parse_known_args()
 
     result_dir = f'./results/emi3d1d_neuron/'
     not os.path.exists(result_dir) and os.makedirs(result_dir)
+    not os.path.exists(args.outdir) and os.makedirs(args.outdir)
 
     def get_path(what, ext):
         template_path = f'{what}_gamma{args.gamma}.{ext}'
@@ -132,22 +135,27 @@ if __name__ == '__main__':
     # Parameters
     sigma3d, sigma1d = 3e0, 7e0  # conductivities in mS cm^-1 (from EMI book, Buccino paper)
     mc = 1  # membrane capacitance in microF cm^-2
-    radius = 1  # radius (rho) of the averaging surface in micro m
+    radius = args.radius  # radius (rho) of the averaging surface in micro m
     deltat_inv = args.gamma  # inverse of the time step, in s^-1 ( 1/dt )
 
-    gamma = deltat_inv * 2 * np.pi * radius * mc  # coupling parameter
-    sigma1d = sigma1d * np.pi * radius**2  # scaled 1d conductivity
+    if radius > 0:
+        gamma = deltat_inv * 2 * np.pi * radius * mc  # coupling parameter
+        sigma1d = sigma1d * np.pi * radius**2  # scaled 1d conductivity
+    else:
+        gamma = deltat_inv * 2 * np.pi * mc  # assume radius = 1 micro meter
+        sigma1d = sigma1d * np.pi
 
     # Get discrete system
     start_time = time.time()
-    A, b, W, C = get_system(edge_f, k3=sigma3d, k1=sigma1d, gamma=gamma, coupling_radius=radius)
+    A, b, W = get_system(edge_f, k3=sigma3d, k1=sigma1d, gamma=gamma, coupling_radius=radius)
     # A = AD + gamma * M
     print("\n------------------ System setup and assembly time: ", time.time() - start_time, "\n")
+    load_solution = False
     if args.dump:
-        utils.dump_system(A, b, W)
-    else:
+        utils.dump_system(A, b, W, folder=args.outdir)
+    elif load_solution:
         Vunperm = (np.array(dof_to_vertex_map(W[0]), dtype='int32'), np.array(dof_to_vertex_map(W[1]), dtype='int32'))
-        sol = np.loadtxt("./solution.txt")
+        sol = np.loadtxt(result_dir+"solution.txt")
         sol_size = int(sol[0])
         sol = sol[1:]
         xx = (sol[:W[0].dim()], sol[W[0].dim():sol_size])
@@ -159,5 +167,9 @@ if __name__ == '__main__':
 
         File(get_path('uh0', 'pvd')) << wh[0]
         File(get_path('uh1', 'pvd')) << wh[1]
+    else:
+        A_ = ii_convert(A)
+        b_ = ii_convert(b)
+        niters, wh, ksp_dt = utils.solve_haznics(A_, b_, W)
 
 

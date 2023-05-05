@@ -187,7 +187,7 @@ if __name__ == '__main__':
         assert np.all(np.isfinite(m.data))
         return np.save(path, np.c_[m.row, m.col, m.data])
 
-    dump(A_, 'A.npy') 
+    dump(A_, 'data/neuron/radius1/gamma0/A.npy')
     dump(Bt_, 'Bt.npy') 
     dump(B_, 'B.npy') 
     dump(C_, 'C.npy') 

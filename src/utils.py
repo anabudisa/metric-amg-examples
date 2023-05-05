@@ -779,7 +779,7 @@ def get_coupling_dofs(V, interface):
     return np.unique(dofs)
 
 
-def dump_system(AA, bb, W, meshes=None):
+def dump_system(AA, bb, W, meshes=None, folder=None):
     print('Write begin')
     from petsc4py import PETSc
     import scipy.sparse as sparse
@@ -792,7 +792,7 @@ def dump_system(AA, bb, W, meshes=None):
         assert np.all(np.isfinite(m.data))
         return np.save(path, np.c_[m.row, m.col, m.data])
 
-    [[A, Bt],
+    """[[A, Bt],
      [B, C]] = AA
     b0, b1 = bb
     V0perm = PETSc.IS().createGeneral(np.array(df.vertex_to_dof_map(W[0]), dtype='int32'))
@@ -806,19 +806,21 @@ def dump_system(AA, bb, W, meshes=None):
     b0_.permute(V0perm)
     b1_ = df.as_backend_type(xii.ii_convert(b1)).vec()
     b1_.permute(V1perm)
-
-    csr = B_.getValuesCSR()
+    """
+    A_ = df.as_backend_type(xii.ii_convert(AA)).mat()
+    b_ = df.as_backend_type(xii.ii_convert(bb)).vec()
+    # csr = B_.getValuesCSR()
     # dofs3d = get_interface_dofs(W[0], meshes[2])
-    dofs3d = np.arange(W[0].dim())
+    dofs3d = np.arange(W[0].dim(), dtype=np.int32)
     interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
-
-    folder = './data/neuron/gamma6/'
+    folder = './data/neuron/radius1/gamma0/' if folder is None else folder
     dump(A_, folder+'A.npy')
-    dump(Bt_, folder+'Bt.npy')
-    dump(B_, folder+'B.npy')
-    dump(C_, folder+'C.npy')
-    dump(b0_, folder+'b0.npy')
-    dump(b1_, folder+'b1.npy')
+    # dump(Bt_, folder+'Bt.npy')
+    # dump(B_, folder+'B.npy')
+    # dump(C_, folder+'C.npy')
+    # dump(b0_, folder+'b0.npy')
+    # dump(b1_, folder+'b1.npy')
+    dump(b_, folder+'b.npy')
     assert np.all(np.isfinite(interface_dofs.data))
     assert np.all(np.isfinite(dofs3d))
     np.save(folder+'idofs.npy', interface_dofs)
