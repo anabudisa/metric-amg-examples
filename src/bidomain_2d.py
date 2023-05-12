@@ -18,14 +18,14 @@ def setup_mms(params):
     kappa1, kappa2, gamma = Constant(1), Constant(2), Constant(3)
 
     x, y = SpatialCoordinate(mesh)
-    u1 = cos(pi*(x + y))
-    u2 = sin(pi*(x - y))
+    u1 = cos(pi * (x + y))
+    u2 = sin(pi * (x - y))
 
-    sigma1 = -kappa1*grad(u1)
-    sigma2 = -kappa2*grad(u2)
+    sigma1 = -kappa1 * grad(u1)
+    sigma2 = -kappa2 * grad(u2)
 
-    f1 = div(sigma1) + gamma*(u1-u2)
-    f2 = div(sigma2) + gamma*(u2-u1)
+    f1 = div(sigma1) + gamma * (u1 - u2)
+    f2 = div(sigma2) + gamma * (u2 - u1)
 
     kappa10, kappa20, gamma0 = sp.symbols('kappa1, kappa2, gamma')
     subs = {kappa1: kappa10, kappa2: kappa20, gamma: gamma0}
@@ -36,7 +36,7 @@ def setup_mms(params):
                                               kappa1=params.kappa1,
                                               kappa2=params.kappa2,
                                               gamma=params.gamma)
-            
+
     data = {
         'u1': as_expression(u1),
         'flux1': as_expression(sigma1),
@@ -62,34 +62,34 @@ def get_system(boundaries, data, pdegree, parameters):
     v1, v2 = map(TestFunction, W)
 
     a = block_form(W, 2)
-    a[0][0] = inner(kappa1*grad(u1), grad(v1))*dx + gamma*inner(u1, v1)*dx
-    a[0][1] = -gamma*inner(u2, v1)*dx
-    a[1][0] = -gamma*inner(u1, v2)*dx
-    a[1][1] = inner(kappa2*grad(u2), grad(v2))*dx + gamma*inner(u2, v2)*dx
-               
+    a[0][0] = inner(kappa1 * grad(u1), grad(v1)) * dx + gamma * inner(u1, v1) * dx
+    a[0][1] = -gamma * inner(u2, v1) * dx
+    a[1][0] = -gamma * inner(u1, v2) * dx
+    a[1][1] = inner(kappa2 * grad(u2), grad(v2)) * dx + gamma * inner(u2, v2) * dx
+
     #  2
     # 3 4
     #  1
-    dirichlet_tags = (1, 2)  
+    dirichlet_tags = (1, 2)
 
     all_tags = {1, 2, 3, 4}
     neumann_tags = tuple(all_tags - set(dirichlet_tags))  # Neumann is full stress
-    
+
     f1, f2 = data['f1'], data['f2']
     sigma1, sigma2 = data['flux1'], data['flux2']
     u1, u2 = data['u1'], data['u2']
 
     L = block_form(W, 1)
-    L[0] = inner(f1, v1)*dx
-    L[1] = inner(f2, v2)*dx
+    L[0] = inner(f1, v1) * dx
+    L[1] = inner(f2, v2) * dx
 
     ds = Measure('ds', domain=mesh, subdomain_data=boundaries)
     # Neumann
     n = FacetNormal(mesh)
     # Add full stress
-    L[0] += -sum(inner(dot(sigma1, n), v1)*ds(tag) for tag in neumann_tags)
-    L[1] += -sum(inner(dot(sigma2, n), v2)*ds(tag) for tag in neumann_tags)    
-        
+    L[0] += -sum(inner(dot(sigma1, n), v1) * ds(tag) for tag in neumann_tags)
+    L[1] += -sum(inner(dot(sigma2, n), v2) * ds(tag) for tag in neumann_tags)
+
     bcs = [[DirichletBC(V, u1, boundaries, tag) for tag in dirichlet_tags],
            [DirichletBC(V, u2, boundaries, tag) for tag in dirichlet_tags]]
 
@@ -97,6 +97,7 @@ def get_system(boundaries, data, pdegree, parameters):
     A, b = apply_bc(A, b, bcs)
 
     return A, b, W, bcs
+
 
 # --------------------------------------------------------------------
 
@@ -107,28 +108,32 @@ if __name__ == '__main__':
     import argparse, time, tabulate
     import numpy as np
     import os, utils
+    import amg_parameters
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-nrefs', type=int, default=1, help='Number of mesh refinements')
     # Material properties
     parser.add_argument('-kappa1', type=float, default=2, help='Diffusion in 1')
     parser.add_argument('-kappa2', type=float, default=3, help='Diffusion in 2')
-    parser.add_argument('-gamma', type=float, default=5, help='Coupling strength')            
+    parser.add_argument('-gamma', type=float, default=5, help='Coupling strength')
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
-    parser.add_argument('-precond', type=str, default='hazmath', choices=('hazmath', 'metric', 'metric_mono', 'metric_hazmath'))
-    
+    parser.add_argument('-precond', type=str, default='hazmath', choices=(
+    'diag', 'hazmath', 'hazmath_Schwarz', 'hazmath_HEM', 'metric', 'metric_mono', 'metric_hazmath'))
+
     parser.add_argument('-save', type=int, default=0, help='Save graphics')
 
     args, _ = parser.parse_known_args()
-    
+
     result_dir = f'./results/bidomain_2d/'
     not os.path.exists(result_dir) and os.makedirs(result_dir)
+
 
     def get_path(what, ext):
         template_path = f'{what}_precond{args.precond}_kappa1{args.kappa1}_kappa2{args.kappa2}_gamma{args.gamma}_pdegree{args.pdegree}.{ext}'
         return os.path.join(result_dir, template_path)
+
 
     Params = namedtuple('Params', ('kappa1', 'kappa2', 'gamma'))
     params = Params(args.kappa1, args.kappa2, args.gamma)
@@ -148,6 +153,8 @@ if __name__ == '__main__':
     table_error = []
 
     get_precond = {'hazmath': utils.get_hazmath_amg_precond,  # solve w cbc CG + R.T*hazmathAMG*R preconditioner
+                   'hazmath_Schwarz': utils.get_hazmath_amg_precond,  # solve w cbc CG + R.T*hazmathAMG*R preconditioner + Schwarz smoother
+                   'hazmath_HEM': utils.get_hazmath_metric_precond_mono,  # solve w cbc CG + R.T*metricAMG*R preconditioner + HEM aggregation
                    'metric': utils.get_hazmath_metric_precond,  # solve w cbc CG + R.T*metricAMG*R preconditioner
                    'metric_mono': utils.get_hazmath_metric_precond_mono,  # solve w cbc CG + metricAMG on Amonolithic
                    'metric_hazmath': None}[args.precond]  # solve w hazmath CG + hazmath metricAMG
@@ -158,22 +165,21 @@ if __name__ == '__main__':
     u1_true, u2_true = test_case['u1'], test_case['u2']
     # Let's do this thing
     errors0, h0, diameters = None, None, None
-    for ncells in (2**i for i in range(5, 5+args.nrefs)):
+    for ncells in (2 ** i for i in range(5, 5 + args.nrefs)):
         mesh, entity_fs = mesh_generator.send(ncells)
         next(mesh_generator)
 
         cell_f, facet_f = entity_fs[2], entity_fs[1]
-
         # assemble
         AA, bb, W, bcs = get_system(facet_f, data=test_case, pdegree=pdegree, parameters=params)
 
         # mono or block
-        if args.precond in {"metric_mono", "metric_hazmath", "hazmath"}:
+        if args.precond in {"metric_mono", "metric_hazmath", "hazmath", "hazmath_Schwarz", "hazmath_HEM"}:
             AA_ = ii_convert(AA)
             bb_ = ii_convert(bb)
             cbk = lambda k, x, r, b=bb_, A=AA_: print(f'\titer{k} -> {[(b - A * x).norm("l2")]}')
         else:
-            cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b-A*x).norm("l2")]}')
+            cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b - A * x).norm("l2")]}')
 
         then = time.time()
         if args.precond == "metric_hazmath":
@@ -181,10 +187,20 @@ if __name__ == '__main__':
             niters, wh, ksp_dt = utils.solve_haznics(AA_, bb_, W)
             r_norm = 0
             cond = -1
-        elif args.precond == "metric_mono" or args.precond == "hazmath":
+        elif args.precond in {"metric_mono", "hazmath", "hazmath_Schwarz", "hazmath_HEM"}:
             # this one solves the monolithic system w cbc.block CG + metricAMG
             interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
-            BB = get_precond(AA_, W, bcs, interface_dofs)
+
+            if args.precond == "hazmath":
+                amgparams = amg_parameters.parameters_standard
+            elif args.precond == "hazmath_Schwarz":
+                amgparams = amg_parameters.parameters_standard_schwarz
+            elif args.precond == "hazmath_HEM":
+                amgparams = amg_parameters.parameters_metric
+            else:
+                amgparams = amg_parameters.parameters_metric_schwarz
+
+            BB = get_precond(AA_, W, bcs, amgparams, interface_dofs)
 
             AAinv = ConjGrad(AA_, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)
             xx = AAinv * bb_
@@ -202,7 +218,7 @@ if __name__ == '__main__':
             # these solve in block fashion
             if args.precond == "metric":
                 interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
-                BB = get_precond(AA, W, bcs, interface_dofs)
+                BB = get_precond(AA, W, bcs, amg_parameters.parameters_metric_schwarz, interface_dofs)
             else:
                 BB = get_precond(AA, W, bcs)
             AAinv = ConjGrad(AA, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)
@@ -223,24 +239,24 @@ if __name__ == '__main__':
         ndofs = sum(Wi.dim() for Wi in W)
 
         eu1 = errornorm(u1_true, wh[0], 'H1', degree_rise=1)
-        eu2 = errornorm(u2_true, wh[1], 'H1', degree_rise=1)        
+        eu2 = errornorm(u2_true, wh[1], 'H1', degree_rise=1)
         errors = np.array([eu1, eu2])
 
         if errors0 is None:
-            rates = [np.nan]*len(errors)
+            rates = [np.nan] * len(errors)
 
             # Base print
             with open(get_path('iters', 'txt'), 'w') as out:
                 out.write('%s\n' % ' '.join(headers_ksp))
-            
+
             with open(get_path('error', 'txt'), 'w') as out:
                 out.write('%s\n' % ' '.join(headers_error))
         else:
-            rates = np.log(errors/errors0)/np.log(h/h0)
+            rates = np.log(errors / errors0) / np.log(h / h0)
         errors0, h0 = errors, h
 
         # ---
-        ksp_row = (ndofs, niters, cond, ksp_dt, r_norm, h0) 
+        ksp_row = (ndofs, niters, cond, ksp_dt, r_norm, h0)
         table_ksp.append(ksp_row)
         if ncells > 2 ** (5 + args.nrefs - 2):
             utils.print_blue(tabulate.tabulate(table_ksp, headers=headers_ksp))
@@ -253,10 +269,10 @@ if __name__ == '__main__':
         table_error.append(error_row)
         if ncells > 2 ** (5 + args.nrefs - 2):
             utils.print_green(tabulate.tabulate(table_error, headers=headers_error))
-        
+
         with open(get_path('error', 'txt'), 'a') as out:
             out.write('%s\n' % (' '.join(tuple(map(str, error_row)))))
-        
+
     if args.save:
         File(get_path('uh0', 'pvd')) << wh[0]
-        File(get_path('uh1', 'pvd')) << wh[1]        
+        File(get_path('uh1', 'pvd')) << wh[1]

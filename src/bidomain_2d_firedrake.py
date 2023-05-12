@@ -1,141 +1,129 @@
+# WITH W cycle
 from firedrake import *
 from petsc4py import PETSc
-from functools import partial
 import numpy as np
 
 print = PETSc.Sys.Print
 
-GREEN = '\033[1;37;32m%s\033[0m'
-RED = '\033[1;37;31m%s\033[0m'
-BLUE = '\033[1;37;34m%s\033[0m'
 
+def bidomain_mms(mesh, params=None):
+    '''Manufactured solution for [] case'''
+    # Expect all
+    if params is not None:
+        kappa1, kappa2, gamma = (Constant(params[key])
+                                 for key in ('kappa1', 'kappa2', 'gamma'))
+    # All is one
+    else:
+        params = {'kappa1': 1.0, 'kappa2': 1.0, 'gamma': 1.0}
+        return elasticity_mms(mesh, params)
 
-def print_color(color, string):
-    '''Print with color'''
-    print(color % string)
-    # NOTE: this is here just to have something to test
-    return color
-
-
-print_red = partial(print_color, RED)
-print_green = partial(print_color, GREEN)
-print_blue = partial(print_color, BLUE)    
-
-
-def setup_mms(mesh, params):
-    '''
-    We solve
-
-    -div(kappa1*grad u1) + gamma*(u1-u2) = f1
-    -div(kappa2*grad u2) + gamma*(u2-u1) = f2
-
-    with mixed boundary conditions
-    '''
-    kappa1, kappa2, gamma = Constant(params.kappa1), Constant(params.kappa2), Constant(params.gamma)
+    msg = f'kappa1 = {kappa1(0)} kappa2 = {kappa2(0)} gamma = {gamma(0)} | width = {width}'
+    print(RED % msg)
 
     x, y = SpatialCoordinate(mesh)
-    u1 = cos(pi*(x + y))
-    u2 = sin(pi*(x - y))
+    # div u = 0
+    u1, u2 = sin(pi*(x**2 - y**2)), cos(pi*(x**2 + y**2))
 
-    sigma1 = -kappa1*grad(u1)
-    sigma2 = -kappa2*grad(u2)
+    sigma1, sigma2 = kappa1*grad(u1), kappa2*grad(u2)
+    f1, f2 = -div(sigma1) + gamma*(u1-u2), -div(sigma2) + gamma*(u2-u1)
 
-    f1 = div(sigma1) + gamma*(u1-u2)
-    f2 = div(sigma2) + gamma*(u2-u1)
+    def get_errors(wh, w=(u1, u2), norm_ops=None):
+        wh, = wh
+        whs = wh.split()
 
-    data = {
-        'u1': u1,
-        'flux1': sigma1,
-        'f1': f1,
-        'u2': u2,
-        'flux2': sigma2,
-        'f2': f2
-    }
-    return data
+        results = {}
+        for i, wh in enumerate(whs):
+            results[f'|eu_{i}|_1'] = errornorm(w[i], wh, 'H1', degree_rise=2)
+
+        return results
+
+    return {'parameters': params,
+            'get_errors': get_errors,
+            'forces': {'u1': f1, 'traction1': sigma1,
+                       'u2': f2, 'traction2': sigma2},
+            'solution': {'u1': u1, 'u2': u2}}
 
 
-def get_system(mesh, data, pdegree, parameters, precond):
-    """Setup the linear system A*x = b in W where W has bcs"""
-    kappa1, kappa2, gamma = (Constant(parameters.kappa1),
-                             Constant(parameters.kappa2),
-                             Constant(parameters.gamma))
+def bidomain_system(mesh, width, mms, mg_type='amg'):
+    '''Auxiliary'''
+    kappa1, kappa2, gamma = (Constant(mms['parameters'][key])
+                             for key in ('kappa1', 'kappa2', 'gamma'))
 
-    Velm = FiniteElement('Lagrange', mesh.ufl_cell(), pdegree)
-    Welm = MixedElement([Velm, Velm])
+    cell = mesh.ufl_cell()
+    Velm = FiniteElement('Lagrange', cell, 1)
+
+    Welm = MixedElement([Velm]*2)
     W = FunctionSpace(mesh, Welm)
-    
-    u1, u2 = TrialFunctions(W)
-    v1, v2 = TestFunctions(W)
 
-    a = inner(kappa1*grad(u1), grad(v1))*dx + gamma*inner(u1, v1)*dx
-    a += -gamma*inner(u2, v1)*dx
-    a += -gamma*inner(u1, v2)*dx
-    a += inner(kappa2*grad(u2), grad(v2))*dx + gamma*inner(u2, v2)*dx
+    u, v = TrialFunction(W), TestFunction(W)
+    us, vs = split(u), split(v)
+    u1, u2 = us
+    v1, v2 = vs
 
-    #  2
-    # 3 4
-    #  1
+    x, y = SpatialCoordinate(mesh)
+    localize = conditional(le(abs(x-Constant(0.5)), Constant(width)),
+                           Constant(1),
+                           Constant(0))
+
+    a = (inner(kappa1*grad(u1), grad(v1))*dx + localize*gamma*inner(u1-u2, v1-v2)*dx
+         + inner(kappa2*grad(u2), grad(v2))*dx)
+
+    n = FacetNormal(mesh)
+
     dirichlet_tags = (1, 2)  
 
     all_tags = set((1, 2, 3, 4))
     neumann_tags = tuple(all_tags - set(dirichlet_tags))  # Neumann is full stress
-    
-    f1, f2 = data['f1'], data['f2']
-    sigma1, sigma2 = data['flux1'], data['flux2']
-    u1, u2 = data['u1'], data['u2']
 
-    L = inner(f1, v1)*dx
-    L += inner(f2, v2)*dx
+    f1, f2 = mms['forces']['u1'], mms['forces']['u2']
+    sigma1, sigma2 = mms['forces']['traction1'], mms['forces']['traction2']
 
-    ds = Measure('ds', domain=mesh)
+    u1, u2 = mms['solution']['u1'], mms['solution']['u2']
+
+    L = inner(f1, v1)*dx + inner(f2, v2)*dx
     # Neumann
-    n = FacetNormal(mesh)
     # Add full stress
-    L += -sum(inner(dot(sigma1, n), v1)*ds(tag) for tag in neumann_tags)
-    L += -sum(inner(dot(sigma2, n), v2)*ds(tag) for tag in neumann_tags)    
-        
-    bcs = [DirichletBC(W.sub(0), u1, dirichlet_tags)]
-    bcs.append(DirichletBC(W.sub(1), u2, dirichlet_tags))
+    L += sum(inner(dot(sigma1, n), v1)*ds(tag) for tag in neumann_tags)
+    L += sum(inner(dot(sigma2, n), v2)*ds(tag) for tag in neumann_tags)    
+
+    bcs = [DirichletBC(W.sub(0), u1, dirichlet_tags),
+           DirichletBC(W.sub(1), u2, dirichlet_tags)]
 
     solver_parameters = {
         'ksp_type': 'cg',
-        'ksp_rtol': 1E-12,
+        'ksp_rtol': 1E-10,
         'ksp_monitor_true_residual': None,
         'ksp_view': None,
         'mg_log_view': None,
         'ksp_view_singularvalues': None,
     }
 
-    mg_parameters = {
-        "pc_type": "mg",  # NOTE: setting this one to LU is the exact preconditioner
-        "pc_mg_type": 'full', #"full",
-        "mg_levels_ksp_type": "richardson",
-        "mg_levels_ksp_richardson_scale": 1/3,
-        "mg_levels_ksp_max_it": 1,  # NOTE: this was 1
-        "mg_levels_ksp_convergence_test": "skip",
-        "mg_levels_pc_type": "python",
-        "mg_levels_pc_python_type": "firedrake.PatchPC",
-        "mg_levels_patch_pc_patch_save_operators": True,
-        "mg_levels_patch_pc_patch_construct_type": "star",
-        "mg_levels_patch_pc_patch_construct_dim": 0,
-        "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
-        "mg_levels_patch_sub_ksp_type": "preonly",
-        "mg_levels_patch_sub_pc_type": "lu",
-        "mg_coarse_pc_type": "python",
-        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-        "mg_coarse_assembled_pc_type": "lu",
-        "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"
-    }
+    if mg_type.lower() == 'amg':
+        mg_parameters = {'pc_type': 'hypre'}
+    else:
+        assert mg_type.lower() == 'mg'
 
-    amg_parameters = {
-        "pc_type": "hypre",  # NOTE: setting this one to LU is the exact preconditioner
-        'pc_hypre_boomeramg_cycle_type': 'V',
-        'pc_hypre_boomeramg_smooth_type': 'Schwarz-smoothers',
-        'pc_hypre_boomeramg_interp_type': 'multipass'
-    }
-    
-    solver_parameters.update(mg_parameters if precond == 'mg' else
-                             amg_parameters)
+        mg_parameters = {
+            "pc_type": "mg",  # NOTE: setting this one to LU is the exact preconditioner
+            "pc_mg_type": 'full', #"full",
+            "mg_levels_ksp_type": "richardson",
+            "mg_levels_ksp_richardson_scale": 1/3,
+            "mg_levels_ksp_max_it": 1,  # NOTE: this was 1
+            "mg_levels_ksp_convergence_test": "skip",
+            "mg_levels_pc_type": "python",
+            "mg_levels_pc_python_type": "firedrake.PatchPC",
+            "mg_levels_patch_pc_patch_save_operators": True,
+            "mg_levels_patch_pc_patch_construct_type": "star",
+            "mg_levels_patch_pc_patch_construct_dim": 0,
+            "mg_levels_patch_pc_patch_sub_mat_type": "seqdense",
+            "mg_levels_patch_sub_ksp_type": "preonly",
+            "mg_levels_patch_sub_pc_type": "lu",
+            "mg_coarse_pc_type": "python",
+            "mg_coarse_pc_python_type": "firedrake.AssembledPC",
+            "mg_coarse_assembled_pc_type": "lu",
+            "mg_coarse_assembled_pc_factor_mat_solver_type": "mumps"
+        }
+    solver_parameters.update(mg_parameters)
 
     wh = Function(W)
     problem = LinearVariationalProblem(a, L, wh, bcs=bcs)
@@ -143,124 +131,66 @@ def get_system(mesh, data, pdegree, parameters, precond):
     ksp = solver.snes.ksp
 
     ksp.setComputeEigenvalues(1)
-    ksp.setConvergenceHistory()
-    
+
     solver.solve()
 
-    return wh, ksp
+    niters = ksp.getIterationNumber()
+    eigws = ksp.computeEigenvalues()
+
+    return (wh, niters, eigws)
 
 # --------------------------------------------------------------------
 
 if __name__ == '__main__':
-    from collections import namedtuple
-    import argparse, time, tabulate
-    import numpy as np
     import os
 
     distribution_parameters = {"partition": True,
                                "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    
 
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-nrefs', type=int, default=1, help='Number of mesh refinements')
-    # Material properties
-    parser.add_argument('-kappa1', type=float, default=2, help='Diffusion in 1')
-    parser.add_argument('-kappa2', type=float, default=3, help='Diffusion in 2')
-    parser.add_argument('-gamma', type=float, default=5, help='Coupling strength')            
-    # Discretization
-    parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
-    # Solver
-    parser.add_argument('-precond', type=str, default='hypre', choices=('mg', 'hypre'))
-    
-    parser.add_argument('-save', type=int, default=0, help='Save graphics')    
+    OptDB = PETSc.Options()
+    # System size    
+    n0 = OptDB.getInt('ncells', 2)
+    nrefs = OptDB.getInt('nrefs', 6)
 
-    args, _ = parser.parse_known_args()
-    
-    result_dir = f'./results/bidomain_2d_firedrake/'
-    not os.path.exists(result_dir) and os.makedirs(result_dir)
+    kappa1 = OptDB.getScalar('kappa1', 3E0)
+    kappa2 = OptDB.getScalar('kappa2', 5E0)
+    gamma = OptDB.getScalar('gamma', 1E0)
 
-    def get_path(what, ext):
-        template_path = f'{what}_precond{args.precond}_kappa1{args.kappa1}_kappa2{args.kappa2}_gamma{args.gamma}_pdegree{args.pdegree}.{ext}'
-        return os.path.join(result_dir, template_path)
+    width = OptDB.getScalar('width', 2.0)
 
-    Params = namedtuple('Params', ('kappa1', 'kappa2', 'gamma'))
-    params = Params(args.kappa1, args.kappa2, args.gamma)
-    print_red(str(params))
-    
-    # Setup problem geometry and discretization
-    pdegree = args.pdegree
+    mg_type = OptDB.getString('mg_type', 'amg')
+    not os.path.exists('results') and os.mkdir('results')
 
-    # What we want to collect for KSP
-    headers_ksp = ['ndofs', 'niters', 'cond', 'timeKSP', 'r', 'h', '|A|']
-    table_ksp = []
-    # What we want to collect for error
-    headers_error = ['ndofs', 'h', '|eu1|_1', 'r|eu1|_1', '|eu2|_1', 'r|eu2|_1']
-    table_error = []
+    path = f'./results/bidomain_{mg_type}_width{width}_kappa1{kappa1}_kappa2{kappa2}_gamma{gamma}.txt'
+    header_base = '# dim niters lmin lmax cond'    
+    template_base = '%d %d %g %g %g'
 
-    # Let's do this thing
-    errors0, h0, diameters = None, None, None
-    for ncells in (2**i for i in range(args.nrefs)):
-
-        coarse_mesh = UnitSquareMesh(ncells, ncells, 'left', distribution_parameters=distribution_parameters)
+    iters_history = []
+    for k in range(n0, n0+nrefs):
+        coarse_mesh = UnitSquareMesh(2**k, 2**k, 'left', distribution_parameters=distribution_parameters)
         hierarchy = MeshHierarchy(coarse_mesh, 3)
 
-        mesh = hierarchy[-1]
-        mms = setup_mms(mesh, params=params)
+        mesh = hierarchy[-1]        
+        mms = bidomain_mms(mesh, params={'kappa1': kappa1, 'kappa2': kappa2, 'gamma': gamma})
 
-        then = time.time()
-        wh, ksp = get_system(mesh, data=mms, parameters=params, pdegree=1,
-                             precond=args.precond)
-        ksp_dt = time.time() - then
-        
-        niters = ksp.getIterationNumber()
-        eigenvalues = ksp.computeEigenvalues()
+        uh, niters, eigws = bidomain_system(mesh, width=width, mms=mms, mg_type=mg_type)
+        errors = mms['get_errors']([uh])
+        msg = ' '.join([f'{key} = {val:.3E}' for key, val in errors.items()])
+        msg = ' '.join([msg, f'niters = {niters}', f'dofs = {uh.function_space().dim()}'])
+        print(GREEN % msg)
 
-        r_norm = ksp.getConvergenceHistory()[-1]    
+        header = ' '.join([header_base] + ['%s' % key for key in errors.keys()]) + '\n'
+        template = ' '.join([template_base] + ['%.16f']*len(errors)) + '\n'
 
-        A_, _ = ksp.getOperators()
-        Anorm = A_.norm(PETSc.NormType.NORM_INFINITY)
-        
-        h = mesh.cell_sizes.vector().dat.data_ro.min()
-        ndofs = wh.function_space().dim()
+        eigws = np.abs(np.real(eigws))
+        lmin, lmax = min(eigws), max(eigws)
+        result = (uh.function_space().dim(), niters, lmin, lmax, lmax/lmin)
+        result = result + tuple(errors[key] for key in errors)
+        iters_history.append(result)
 
-        u1_true, u2_true = mms['u1'], mms['u2']
-        
-        wh0, wh1 = wh.split()
-        eu1 = errornorm(u1_true, wh0, 'H1', degree_rise=1)
-        eu2 = errornorm(u2_true, wh1, 'H1', degree_rise=1)        
-        errors = np.array([eu1, eu2])
+        with open(path, 'w') as out:
+            out.write(header)
+            for line in iters_history:
+                out.write(template % line)
 
-        if errors0 is None:
-            rates = [np.nan]*len(errors)
-
-            # Base print
-            with open(get_path('iters', 'txt'), 'w') as out:
-                out.write('# %s\n' % ' '.join(headers_ksp))                
-            
-            with open(get_path('error', 'txt'), 'w') as out:
-                out.write('# %s\n' % ' '.join(headers_error))
-        else:
-            rates = np.log(errors/errors0)/np.log(h/h0)
-        errors0, h0 = errors, h
-
-        cond = max(eigenvalues)/min(eigenvalues)
-        
-        # ---
-        ksp_row = (ndofs, niters, cond, ksp_dt, r_norm, h0, Anorm) 
-        table_ksp.append(ksp_row)
-        print_blue(tabulate.tabulate(table_ksp, headers=headers_ksp))
-
-        with open(get_path('iters', 'txt'), 'a') as out:
-            out.write('%s\n' % (' '.join(tuple(map(str, ksp_row)))))
-
-        # ---
-        error_row = (ndofs, h0) + sum(zip(errors, rates), ())
-        table_error.append(error_row)
-        print_green(tabulate.tabulate(table_error, headers=headers_error))        
-        
-        with open(get_path('error', 'txt'), 'a') as out:
-            out.write('%s\n' % (' '.join(tuple(map(str, error_row)))))
-
-    # FIXME: 
-    #        3d version
-    #
+    print(iters_history)

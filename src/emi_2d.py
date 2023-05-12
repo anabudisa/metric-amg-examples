@@ -5,11 +5,11 @@ import sympy as sp
 import ulfy
 
 
-def setup_mms(params, normals):
+def setup_mms(params):
     '''
     We solve
 
-    -div(kappa_i*grad u_i) = f_i in Omega_i 
+    -div(kappa_i*grad u_i) = f_i in Omega_i
 
     with coupling conditions and mixed boundary conditions
     '''
@@ -18,14 +18,14 @@ def setup_mms(params, normals):
     kappa1, kappa2, gamma = Constant(1), Constant(2), Constant(3)
 
     x, y = SpatialCoordinate(mesh)
-    u1 = cos(pi*(x + y))
-    u2 = sin(pi*(x + y))
+    u1 = cos(pi * (x + y))
+    u2 = sin(pi * (x + y))
 
-    sigma1 = kappa1*grad(u1)
-    sigma2 = kappa2*grad(u2)
+    sigma1 = kappa1 * grad(u1)
+    sigma2 = kappa2 * grad(u2)
 
-    f1 = -div(sigma1) 
-    f2 = -div(sigma2) 
+    f1 = -div(sigma1)
+    f2 = -div(sigma2)
 
     kappa10, kappa20, gamma0 = sp.symbols('kappa1, kappa2, gamma')
     subs = {kappa1: kappa10, kappa2: kappa20, gamma: gamma0}
@@ -37,6 +37,8 @@ def setup_mms(params, normals):
                                               kappa2=params.kappa2,
                                               gamma=params.gamma)
 
+    n1, n2 = Constant((0, -1)), Constant((0, 1))
+
     data = {
         'u1': as_expression(u1),
         'flux1': as_expression(sigma1),
@@ -46,14 +48,11 @@ def setup_mms(params, normals):
         'flux2': as_expression(sigma2),
         'f2': as_expression(f2),
         #
-        'g_n': {tag: as_expression(-dot(sigma1, n1) - dot(sigma2, -n1))
-                for tag, n1 in normals.items()},
+        'g_n': as_expression(-dot(sigma1, n1) - dot(sigma2, n2)),
         # -sigma.n.n = alpha(u1-u2) + g_r
-        'g_r': {tag: as_expression(-dot(sigma1, n1) - gamma*(u1 - u2))
-                for tag, n1 in normals.items()}
+        'g_r': as_expression(-dot(sigma1, n1) - gamma * (u1 - u2))
     }
     return data
-
 
 
 def get_system(boundaries1, boundaries2, interface, data, pdegree, parameters):
@@ -64,10 +63,10 @@ def get_system(boundaries1, boundaries2, interface, data, pdegree, parameters):
 
     mesh1 = boundaries1.mesh()
     mesh2 = boundaries2.mesh()
-    
+
     V1 = FunctionSpace(mesh1, 'Lagrange', pdegree)
     V2 = FunctionSpace(mesh2, 'Lagrange', pdegree)
-    
+
     W = [V1, V2]
 
     u1, u2 = map(TrialFunction, W)
@@ -86,42 +85,40 @@ def get_system(boundaries1, boundaries2, interface, data, pdegree, parameters):
     n1_ = OuterNormal(interface, mesh1)
     n2_ = -n1_
     n_ = n1_
-    dx_ = Measure('dx', domain=interface, subdomain_data=interface.marking_function)
+    dx_ = Measure('dx', domain=interface)
 
     a = block_form(W, 2)
-    a[0][0] = (inner(kappa1*grad(u1), grad(v1))*dx + gamma*inner(Tu1, Tv1)*dx_)
-    a[0][1] = -gamma*inner(Tu2, Tv1)*dx_
-    a[1][0] = -gamma*inner(Tu1, Tv2)*dx_
-    a[1][1] = (inner(kappa2*grad(u2), grad(v2))*dx + gamma*inner(Tu2, Tv2)*dx_)
-               
+    a[0][0] = (inner(kappa1 * grad(u1), grad(v1)) * dx + gamma * inner(Tu1, Tv1) * dx_)
+    a[0][1] = -gamma * inner(Tu2, Tv1) * dx_
+    a[1][0] = -gamma * inner(Tu1, Tv2) * dx_
+    a[1][1] = (inner(kappa2 * grad(u2), grad(v2)) * dx + gamma * inner(Tu2, Tv2) * dx_)
+
     f1, f2 = data['f1'], data['f2']
     sigma1, sigma2 = data['flux1'], data['flux2']
     u1_data, u2_data = data['u1'], data['u2']
 
     L = block_form(W, 1)
-    L[0] = inner(f1, v1)*dx
-    L[1] = inner(f2, v2)*dx
+    L[0] = inner(f1, v1) * dx
+    L[1] = inner(f2, v2) * dx
 
-    dirichlet_tags1 = (3, )
-    neumann_tags1 = tuple(set((2, 3, 4)) - set(dirichlet_tags1))  
+    dirichlet_tags1 = (3,)
+    neumann_tags1 = tuple(set((2, 3, 4)) - set(dirichlet_tags1))
     # --
-    dirichlet_tags2 = (6, )
-    neumann_tags2 = tuple(set((5, 6, 7)) - set(dirichlet_tags2))  
-    
+    dirichlet_tags2 = (6,)
+    neumann_tags2 = tuple(set((5, 6, 7)) - set(dirichlet_tags2))
+
     # Neumann
     # Add full stress
-    L[0] += sum(inner(dot(sigma1, n1), v1)*ds1(tag) for tag in neumann_tags1)
-    L[1] += sum(inner(dot(sigma2, n2), v2)*ds2(tag) for tag in neumann_tags2)
+    L[0] += sum(inner(dot(sigma1, n1), v1) * ds1(tag) for tag in neumann_tags1)
+    L[1] += sum(inner(dot(sigma2, n2), v2) * ds2(tag) for tag in neumann_tags2)
 
     g_r, g_n = data['g_r'], data['g_n']
-    assert g_r.keys() == g_n.keys()
-    assert set(g_r.keys()) == set(np.unique(interface_mesh.marking_function.array()))
     # BJS contribution to first ...
-    L[0] += -sum(inner(g_r[tag], v1)*ds1(tag) for tag in g_r)    
+    L[0] += -sum(inner(g_r, v1) * ds1(tag) for tag in (1,))
     # ... and second
-    L[1] += -sum(inner(g_n[tag], v2)*ds2(tag) for tag in g_n)        
-    L[1] += sum(inner(g_r[tag], v2)*ds2(tag) for tag in g_r)
-    
+    L[1] += -sum(inner(g_n, v2) * ds2(tag) for tag in (1,))
+    L[1] += sum(inner(g_r, v2) * ds2(tag) for tag in (1,))
+
     bcs = [[DirichletBC(V1, u1_data, boundaries1, tag) for tag in dirichlet_tags1],
            [DirichletBC(V2, u2_data, boundaries2, tag) for tag in dirichlet_tags2]]
 
@@ -129,6 +126,7 @@ def get_system(boundaries1, boundaries2, interface, data, pdegree, parameters):
     A, b = apply_bc(A, b, bcs)
 
     return A, b, W, bcs
+
 
 # --------------------------------------------------------------------
 
@@ -141,33 +139,35 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-nrefs', type=int, default=1, help='Number of mesh refinements')
-    # Domain
-    parser.add_argument('-generator', type=str, default='flat', help='Shape of iface', choices=('flat', 'zigzag'))    
-    
     # Material properties
     parser.add_argument('-kappa1', type=float, default=2, help='Diffusion in 1')
     parser.add_argument('-kappa2', type=float, default=3, help='Diffusion in 2')
-    parser.add_argument('-gamma', type=float, default=5, help='Coupling strength')            
+    parser.add_argument('-gamma', type=float, default=5, help='Coupling strength')
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
-    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre'))
-    
-    parser.add_argument('-save', type=int, default=0, choices=(0, 1), help='Save graphics')    
+    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'metric'))
+
+    parser.add_argument('-save', type=int, default=0, choices=(0, 1), help='Save graphics')
 
     args, _ = parser.parse_known_args()
-    
+
     result_dir = f'./results/emi_2d/'
     not os.path.exists(result_dir) and os.makedirs(result_dir)
 
+
     def get_path(what, ext):
-        template_path = f'{what}_generator{args.generator}_precond{args.precond}_kappa1{args.kappa1}_kappa2{args.kappa2}_gamma{args.gamma}_pdegree{args.pdegree}.{ext}'
+        template_path = f'{what}_precond{args.precond}_kappa1{args.kappa1}_kappa2{args.kappa2}_gamma{args.gamma}_pdegree{args.pdegree}.{ext}'
         return os.path.join(result_dir, template_path)
+
 
     Params = namedtuple('Params', ('kappa1', 'kappa2', 'gamma'))
     params = Params(args.kappa1, args.kappa2, args.gamma)
     utils.print_red(str(params))
-    
+
+    # Setup MMS
+    test_case = setup_mms(params)
+
     # Setup problem geometry and discretization
     pdegree = args.pdegree
 
@@ -179,47 +179,35 @@ if __name__ == '__main__':
     table_error = []
 
     get_precond = {'diag': utils.get_block_diag_precond,
-                   'hypre': utils.get_hypre_monolithic_precond}[args.precond]
+                   'metric': utils.get_hazmath_metric_precond}[args.precond]
 
-    if args.generator == 'flat':
-        mesh_generator = utils.SplitUnitSquareMeshes()
-        normals = {1: Constant((0, -1))}
-        next(mesh_generator)
+    mesh_generator = utils.SplitUnitSquareMeshes()
+    next(mesh_generator)
 
-        refinements = (2**i for i in range(4, 4+args.nrefs))
-    else:
-        crack = [0.2, 0, -0.3]
-        mesh_generator = utils.ZigZagSplit2d(crack, view=False)
-        normals = next(mesh_generator)
-        # For ufl we need 
-        normals = {tag: Constant(n) for tag, n in normals.items()}
-        next(mesh_generator)
-
-        refinements = (1./2**i for i in range(1, 1+args.nrefs))
-    # Setup MMS
-    test_case = setup_mms(params, normals)
     u1_true, u2_true = test_case['u1'], test_case['u2']
     # Let's do this thing
     errors0, h0, diameters = None, None, None
-    for ncells in refinements:
+    for ncells in (2 ** i for i in range(6, 6 + args.nrefs)):
         meshes = mesh_generator.send(ncells)
         next(mesh_generator)
 
         bdries1, bdries2, interface_mesh = meshes
 
-        AA, bb, W, bcs = get_system(bdries1, bdries2, interface_mesh, 
+        AA, bb, W, bcs = get_system(bdries1, bdries2, interface_mesh,
                                     data=test_case, pdegree=pdegree, parameters=params)
 
-        # NOTE: For dedicated metric solver from Haznics
-        interface_dofs = [utils.get_interface_dofs(Wi, interface_mesh) for Wi in W]
-        assert all(len(d) for d in interface_dofs)
-
-        cbk = lambda k, x, r, b=bb, A=AA: print(f'\titer{k} -> {[(b[i]-xi).norm("l2") for i, xi in enumerate(A*x)]}')
+        cbk = lambda k, x, r, b=bb, A=AA: print(
+            f'\titer{k} -> {[(b[i] - xi).norm("l2") for i, xi in enumerate(A * x)]}')
 
         then = time.time()
-        # For simplicity only use block diagonal preconditioner
-        BB = get_precond(AA, W, bcs)
-        
+
+        if args.precond == "metric":
+            interface_dofs = np.fromiter(DirichletBC(W[0], Constant(0), bdries1, 1).get_boundary_values().keys(),
+                                         dtype='int32')
+            BB = get_precond(AA, W, bcs, interface_dofs=interface_dofs)
+        else:
+            BB = get_precond(AA, W, bcs)
+
         AAinv = ConjGrad(AA, precond=BB, tolerance=1E-10, show=4, maxiter=500, callback=cbk)
         xx = AAinv * bb
         ksp_dt = time.time() - then
@@ -227,34 +215,34 @@ if __name__ == '__main__':
         wh = ii_Function(W)
         for i, xxi in enumerate(xx):
             wh[i].vector().axpy(1, xxi)
-        niters = len(AAinv.residuals)
+        niters = len(AAinv.residuals)-1
         r_norm = AAinv.residuals[-1]
-        
+
         eigenvalues = AAinv.eigenvalue_estimates()
-        cond = max(eigenvalues)/min(eigenvalues)
+        cond = max(eigenvalues) / min(eigenvalues)
 
         h = W[0].mesh().hmin()
         ndofs = sum(Wi.dim() for Wi in W)
 
         eu1 = errornorm(u1_true, wh[0], 'H1', degree_rise=1)
-        eu2 = errornorm(u2_true, wh[1], 'H1', degree_rise=1)        
+        eu2 = errornorm(u2_true, wh[1], 'H1', degree_rise=1)
         errors = np.array([eu1, eu2])
 
         if errors0 is None:
-            rates = [np.nan]*len(errors)
+            rates = [np.nan] * len(errors)
 
             # Base print
             with open(get_path('iters', 'txt'), 'w') as out:
                 out.write('%s\n' % ' '.join(headers_ksp))
-            
+
             with open(get_path('error', 'txt'), 'w') as out:
                 out.write('%s\n' % ' '.join(headers_error))
         else:
-            rates = np.log(errors/errors0)/np.log(h/h0)
+            rates = np.log(errors / errors0) / np.log(h / h0)
         errors0, h0 = errors, h
 
         # ---
-        ksp_row = (ndofs, niters, cond, ksp_dt, r_norm, h0) 
+        ksp_row = (ndofs, niters, cond, ksp_dt, r_norm, h0)
         table_ksp.append(ksp_row)
         utils.print_blue(tabulate.tabulate(table_ksp, headers=headers_ksp))
 
@@ -264,12 +252,12 @@ if __name__ == '__main__':
         # ---
         error_row = (ndofs, h0) + sum(zip(errors, rates), ())
         table_error.append(error_row)
-        utils.print_green(tabulate.tabulate(table_error, headers=headers_error))        
+        utils.print_green(tabulate.tabulate(table_error, headers=headers_error))
         print()
-        
+
         with open(get_path('error', 'txt'), 'a') as out:
             out.write('%s\n' % (' '.join(tuple(map(str, error_row)))))
-        
+
     if args.save:
         File(get_path('uh0', 'pvd')) << wh[0]
-        File(get_path('uh1', 'pvd')) << wh[1]        
+        File(get_path('uh1', 'pvd')) << wh[1]

@@ -55,7 +55,7 @@ if __name__ == '__main__':
     import argparse, time, tabulate
     import numpy as np
     import os, utils
-
+    import amg_parameters
     from bidomain_2d import get_system
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -68,7 +68,7 @@ if __name__ == '__main__':
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
     parser.add_argument('-precond', type=str, default='hazmath',
-                        choices=('hazmath', 'metric', 'metric_mono', 'metric_hazmath'))
+                        choices=('hazmath', 'hazmath_Schwarz', 'hazmath_HEM', 'metric', 'metric_mono', 'metric_hazmath'))
 
     parser.add_argument('-save', type=int, default=0, help='Save graphics')
 
@@ -99,6 +99,7 @@ if __name__ == '__main__':
     table_error = []
 
     get_precond = {'hazmath': utils.get_hazmath_amg_precond,  # solve w cbc CG + R.T*hazmathAMG*R preconditioner
+                   'hazmath_HEM': utils.get_hazmath_metric_precond_mono, # solve w cbc CG + metricAMG on Amonolithic + HEM aggregation
                    'metric': utils.get_hazmath_metric_precond,  # solve w cbc CG + R.T*metricAMG*R preconditioner
                    'metric_mono': utils.get_hazmath_metric_precond_mono,  # solve w cbc CG + metricAMG on Amonolithic
                    'metric_hazmath': None}[args.precond]  # solve w hazmath CG + hazmath metricAMG
@@ -119,7 +120,7 @@ if __name__ == '__main__':
 
         # mono or block
         then = time.time()
-        if args.precond in {"metric_mono", "metric_hazmath", "hazmath"}:
+        if args.precond in {"metric_mono", "metric_hazmath", "hazmath", "hazmath_HEM"}:
             AA_ = ii_convert(AA)
             bb_ = ii_convert(bb)
             cbk = lambda k, x, r, b=bb_, A=AA_: print(f'\titer{k} -> {[(b - A * x).norm("l2")]}')
@@ -132,10 +133,18 @@ if __name__ == '__main__':
             niters, wh, ksp_dt = utils.solve_haznics(AA_, bb_, W)
             r_norm = 0
             cond = -1
-        elif args.precond == "metric_mono" or args.precond == "hazmath":
+        elif args.precond in {"metric_mono", "hazmath", "hazmath_HEM"}:
             # this one solves the monolithic system w cbc.block CG + metricAMG
             interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
-            BB = get_precond(AA_, W, bcs, interface_dofs)
+
+            if args.precond == "hazmath":
+                amgparams = amg_parameters.parameters_standard
+            elif args.precond == "hazmath_HEM":
+                amgparams = amg_parameters.parameters_metric
+            else:
+                amgparams = amg_parameters.parameters_metric_schwarz
+
+            BB = get_precond(AA_, W, bcs, amgparams, interface_dofs)
 
             AAinv = ConjGrad(AA_, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)
             xx = AAinv * bb_
@@ -153,7 +162,7 @@ if __name__ == '__main__':
             # these solve in block fashion
             if args.precond == "metric":
                 interface_dofs = np.arange(W[0].dim(), W[0].dim() + W[1].dim(), dtype=np.int32)
-                BB = get_precond(AA, W, bcs, interface_dofs)
+                BB = get_precond(AA, W, bcs, interface_dofs=interface_dofs)
             else:
                 BB = get_precond(AA, W, bcs)
             AAinv = ConjGrad(AA, precond=BB, tolerance=1E-8, show=4, maxiter=500, callback=cbk)

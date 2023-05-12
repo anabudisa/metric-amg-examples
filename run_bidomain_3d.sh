@@ -2,7 +2,7 @@
 REDBG='\e[48;2;255;0;02m'
 NC='\e[m'
 #echo -e "${REDBG}Running bidomain_3d.py${NC}"
-prcnd="metric_mono"
+prcnd="hazmath hazmath_HEM"
 for pr in $prcnd
 do
   for gma in 1e0 1e2 1e4 1e6 1e8 1e10
