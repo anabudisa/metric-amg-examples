@@ -117,10 +117,9 @@ if __name__ == '__main__':
     # Discretization
     parser.add_argument('-pdegree', type=int, default=1, help='Polynomial degree in Pk discretization')
     # Solver
-    parser.add_argument('-precond', type=str, default='diag', choices=('diag', 'hypre', 'hazmath', 'metric', 'metric_mono', 'metric_hazmath'))
+    parser.add_argument('-precond', type=str, default='hazmath', choices=('hazmath', 'metric', 'metric_mono', 'metric_hazmath'))
     
     parser.add_argument('-save', type=int, default=0, help='Save graphics')
-    parser.add_argument('-dump', type=int, default=0, help='Save matrices and vectors to .npy format')
 
     args, _ = parser.parse_known_args()
     
@@ -148,9 +147,7 @@ if __name__ == '__main__':
     headers_error = ['ndofs', 'h', '|eu1|_1', 'r|eu1|_1', '|eu2|_1', 'r|eu2|_1']
     table_error = []
 
-    get_precond = {'diag': utils.get_block_diag_precond,
-                   'hypre': utils.get_hypre_monolithic_precond,
-                   'hazmath': utils.get_hazmath_amg_precond,  # solve w cbc CG + R.T*hazmathAMG*R preconditioner
+    get_precond = {'hazmath': utils.get_hazmath_amg_precond,  # solve w cbc CG + R.T*hazmathAMG*R preconditioner
                    'metric': utils.get_hazmath_metric_precond,  # solve w cbc CG + R.T*metricAMG*R preconditioner
                    'metric_mono': utils.get_hazmath_metric_precond_mono,  # solve w cbc CG + metricAMG on Amonolithic
                    'metric_hazmath': None}[args.precond]  # solve w hazmath CG + hazmath metricAMG
@@ -169,11 +166,6 @@ if __name__ == '__main__':
 
         # assemble
         AA, bb, W, bcs = get_system(facet_f, data=test_case, pdegree=pdegree, parameters=params)
-
-        # Write system to .npy files
-        if args.dump and W[0].dim()+W[1].dim() > 1e6:
-            utils.dump_system(AA, bb, W)
-            exit(0)
 
         # mono or block
         if args.precond in {"metric_mono", "metric_hazmath", "hazmath"}:

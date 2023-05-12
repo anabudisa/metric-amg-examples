@@ -29,7 +29,6 @@ def get_mesh_neuron():
     '''Load it'''
     mesh = Mesh()
     with HDF5File(mesh.mpi_comm(), './data/PolyIC_3AS2_1.CNG.c1.h5', 'r') as h5:
-        # import pdb; pdb.set_trace()
         h5.read(mesh, '/mesh', False)
         curves = MeshFunction('double', mesh, 1)
         h5.read(curves, '/curves')
@@ -41,10 +40,6 @@ def get_mesh_neuron():
     values += 1  # Mark everyone
     values[not_neuron] = 0  # Only leave the neuron
 
-    # neuron = EmbeddedMesh(curves, 1)
-    # File('test.pvd') << neuron
-    # exit(0)
-
     return curves
 
 
@@ -55,10 +50,6 @@ def get_system(edge_f, k3=1e0, k1=1e0, gamma=1e0, coupling_radius=0.):
     # Meshes
     meshV = edge_f.mesh()  #
     meshQ = EmbeddedMesh(edge_f, 1)
-
-    # File("neuron3d.pvd") << meshV
-    # File("neuron1d.pvd") << meshQ
-    # exit(0)
 
     # Spaces
     V = FunctionSpace(meshV, 'CG', 1)
@@ -73,10 +64,8 @@ def get_system(edge_f, k3=1e0, k1=1e0, gamma=1e0, coupling_radius=0.):
         # Averaging surface
         cylinder = Circle(radius=coupling_radius, degree=10)
         Ru, Rv = Average(u, meshQ, cylinder), Average(v, meshQ, cylinder)
-        # C = average_3d1d_matrix(V, Q, cylinder)
     else:
         Ru, Rv = Average(u, meshQ, None), Average(v, meshQ, None)
-        # C = trace_3d1d_matrix(V, Q, meshQ)
 
     # Line integral
     dx_ = Measure('dx', domain=meshQ)
@@ -102,9 +91,6 @@ def get_system(edge_f, k3=1e0, k1=1e0, gamma=1e0, coupling_radius=0.):
 
     A, b = map(ii_assemble, (a+m, L))
 
-    # Coupling info
-    # C = csr_matrix(C.getValuesCSR()[::-1], shape=C.size)
-
     return A, b, W
 
 # --------------------------------------------------------------------
@@ -124,7 +110,7 @@ if __name__ == '__main__':
     parser.add_argument('-outdir', type=str, default="./", help='Where to save matrices')
     args, _ = parser.parse_known_args()
 
-    result_dir = f'./results/emi3d1d_neuron/'
+    result_dir = f'./results/emi_3d1d/'
     not os.path.exists(result_dir) and os.makedirs(result_dir)
     not os.path.exists(args.outdir) and os.makedirs(args.outdir)
 
