@@ -3,6 +3,7 @@
 *.pyc
 
 results/
+data/
 __pycache__/
 
 *.pvd

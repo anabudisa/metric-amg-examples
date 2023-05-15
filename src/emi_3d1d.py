@@ -107,16 +107,19 @@ if __name__ == '__main__':
     parser.add_argument('-gamma', type=float, default=1, help='Coupling strength')
     parser.add_argument('-dump', type=int, default=0, choices=(0, 1), help='Save matrices')
     parser.add_argument('-radius', type=float, default=1, help='Coupling radius')
-    parser.add_argument('-outdir', type=str, default="./", help='Where to save matrices')
+    parser.add_argument('-outdir', type=str, default="./data/emi_3d1d/", help='Where to save matrices')
+    parser.add_argument('-load_solution', type=str, default=None, help='Where to load solution from (.txt file)')
     args, _ = parser.parse_known_args()
 
-    result_dir = f'./results/emi_3d1d/'
-    not os.path.exists(result_dir) and os.makedirs(result_dir)
+    if args.dump:
+        args.load_solution = None
+    if args.load_solution is not None:
+        assert os.path.exists(args.load_solution)
     not os.path.exists(args.outdir) and os.makedirs(args.outdir)
 
     def get_path(what, ext):
         template_path = f'{what}_gamma{args.gamma}.{ext}'
-        return os.path.join(result_dir, template_path)
+        return os.path.join(args.load_solution, template_path)
 
     # Parameters
     sigma3d, sigma1d = 3e0, 7e0  # conductivities in mS cm^-1 (from EMI book, Buccino paper)
@@ -136,12 +139,14 @@ if __name__ == '__main__':
     A, b, W = get_system(edge_f, k3=sigma3d, k1=sigma1d, gamma=gamma, coupling_radius=radius)
     # A = AD + gamma * M
     print("\n------------------ System setup and assembly time: ", time.time() - start_time, "\n")
-    load_solution = False
+    # load_solution = False
     if args.dump:
         utils.dump_system(A, b, W, folder=args.outdir)
-    elif load_solution:
+    elif args.load_solution is not None:
+        utils.print_red(f"Loading results from {args.load_solution}solution.txt...")
         Vunperm = (np.array(dof_to_vertex_map(W[0]), dtype='int32'), np.array(dof_to_vertex_map(W[1]), dtype='int32'))
-        sol = np.loadtxt(result_dir+"solution.txt")
+        sol = np.loadtxt(args.load_solution+"solution.txt")
+        utils.print_red("Loading done.")
         sol_size = int(sol[0])
         sol = sol[1:]
         xx = (sol[:W[0].dim()], sol[W[0].dim():sol_size])
@@ -150,10 +155,12 @@ if __name__ == '__main__':
         for i, xxi in enumerate(xx):
             xxi = xxi[Vunperm[i]]
             wh[i].vector().set_local(xxi)
-
+        utils.print_red(f"Saving results to directory {args.load_solution}...")
         File(get_path('uh0', 'pvd')) << wh[0]
         File(get_path('uh1', 'pvd')) << wh[1]
+        utils.print_red("Saving done.")
     else:
+        # alternative solver
         A_ = ii_convert(A)
         b_ = ii_convert(b)
         niters, wh, ksp_dt = utils.solve_haznics(A_, b_, W)
