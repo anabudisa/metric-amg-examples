@@ -1,6 +1,6 @@
 # metric-amg-examples
 
-Code for the numerical examples presented in "Algebraic multigrid methods for metric-perturbed coupled problems" by A. Budisa, X. Hu, M. Kuchta, K.-A. Mardal and L. T. Zikatanov (2023).
+Code for the numerical examples presented in "Algebraic multigrid methods for metric-perturbed coupled problems" by A. Budisa, X. Hu, M. Kuchta, K.-A. Mardal and L. T. Zikatanov (2023).
 
 ### Problems in $2d$
 These things are mostly done on `UnitSquareMesh` geometries to check correctness
@@ -9,7 +9,7 @@ These things are mostly done on `UnitSquareMesh` geometries to check correctness
 
 ### Problems in $3d$
 These things are mostly done on `UnitCubeMesh` geometries to check correctness
-- Bidomain model: `bidomain_3d.py`, `bidomain_3d_firedrake.py`
+- Bidomain model: `bidomain_3d.py`
 - EMI model: `emi_3d.py`
 
 ### Others
@@ -20,7 +20,7 @@ These things are mostly done on `UnitCubeMesh` geometries to check correctness
   - Check out this [README](https://github.com/HAZmathTeam/hazmath/blob/main/examples/haznics/README.md) file at HAZmath repo for installation instructions
 - Additional Python packages (recommended versions): `numpy (v1.21.5)`, `scipy (v1.8.0)`, `sympy (v1.9)`, `tabulate (v0.8.10)`, `networkx (v2.8.4)`, [gmshnics](https://github.com/MiroK/gmshnics)
 - For the geometric MG, install [Firedrake](https://www.firedrakeproject.org/download.html)
-- Download required mesh files by executing `bash downloads.sh`
+- For the 3D-1D problem, download required mesh files by executing `bash downloads.sh`
 
 ### How to run demo examples
 e.g. AMG for the 2D bidomain problem
@@ -28,11 +28,11 @@ e.g. AMG for the 2D bidomain problem
 ```
 python3 ./src/bidomain_2d.py
 ```
-- with specifying mesh parameters (**nrefs** = number of refinements, **gamma** = coupling parameter, **precond** = type of preconditioner)
+- with specifying parameters (**nrefs** = number of refinements, **gamma** = coupling parameter, **precond** = type of preconditioner)
 ```
 python3 ./src/bidomain_2d.py -nrefs 5 -gamma 1e6 -precond metric_mono
 ```
-where `metric_mono` is the tag for the Metric AMG preconditioner implemented in HAZniCS.
+where `metric_mono` is the tag for the monolithic Metric AMG preconditioner implemented in HAZniCS.
 
 The results in the paper can be obtained by executing bash scripts `run_FILENAME.sh` where `FILENAME` is the name of the Python script you want to run, e.g.
 ```
